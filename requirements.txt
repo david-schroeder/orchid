@@ -1,0 +1,11 @@
+pydesignflow
+notcl
+sphinx_rtd_theme
+hjson
+pyelftools
+mistletoe
+mako
+lxml
+librelane
+ordec
+reuse

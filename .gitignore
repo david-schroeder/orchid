@@ -1,0 +1,8 @@
+build/
+__pycache__
+docs/_build/
+vivado*.jou
+vivado*.log
+.Xil/
+.venv
+setup_flow
