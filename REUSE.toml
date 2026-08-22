@@ -6,10 +6,9 @@ path = [
     "README.md",
     "docs/**/*.rst",
     "docs/**/*.svg",
-    "examples/README.md",
     "requirements.txt",
 ]
-SPDX-FileCopyrightText = "2026 %PROJECT% contributors"
+SPDX-FileCopyrightText = "David Schröder 2026"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
@@ -20,6 +19,21 @@ path = [
 SPDX-FileCopyrightText = "2024 RVLab contributors"
 SPDX-License-Identifier = "SHL-2.1"
 
+[[annotations]]
+path = [
+    "src/asic/io/iopins.cfg",
+    "src/asic/io/pads.json",
+]
+SPDX-FileCopyrightText = "David Schröder 2026"
+SPDX-License-Identifier = "SHL-2.1"
+
+[[annotations]]
+path = [
+    "src/asic/io/bondpad_70x70_novias.gds",
+    "src/asic/io/bondpad_70x70_novias.lef",
+]
+SPDX-FileCopyrightText = "2025 LibreLane Template contributors"
+SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
 # Auto-generated files:

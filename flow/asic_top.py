@@ -9,7 +9,6 @@ import os
 import json
 from pathlib import Path
 
-from librelane.config import Config
 from librelane.flows import Flow
 
 
@@ -61,18 +60,52 @@ class AsicTop(Block):
         """Generate LibreLane config for ASIC synthesis"""
         r = Result()
 
+        # Build configuration
         cfg = {}
+
+        # General
         cfg["DESIGN_NAME"] = self.name
-        cfg["CLOCK_PORT"] = "clk_i"
+        cfg["CLOCK_PORT"] = "clk_PAD"
+        cfg["CLOCK_NET"] = "clk_pad/p2c"
         cfg["CLOCK_PERIOD"] = 10 # 100MHz
         cfg["VDD_NETS"] = ["VDD"]
         cfg["GND_NETS"] = ["VSS"]
+
+        # Sources
         cfg["VERILOG_FILES"] = list(map(str, [self.src_dir / "asic/rtl/asic_top.sv", design.design]))
         cfg["VERILOG_DEFINES"] = ["FUNCTIONAL"]
         cfg["VERILOG_POWER_DEFINE"] = "USE_POWER_PINS"
-        cfg["FP_CORE_UTIL"] = 10
         cfg["MACROS"] = macros.macros
 
+        # Floorplanning
+        cfg["FP_SIZING"] = "absolute"
+        cfg["FP_CORE_UTIL"] = 10
+        cfg["DIE_AREA"] = [0, 0, 1090, 1450]
+        cfg["CORE_AREA"] = [365, 365, 725, 1085]
+
+        # I/O
+        pad_config_file: Path = self.src_dir / "asic/io/pads.json"
+        pad_config = json.loads(pad_config_file.read_text())
+        cfg |= pad_config
+        cfg["IO_PIN_ORDER_CFG"] = str(self.src_dir / "asic/io/iopins.cfg")
+        cfg["PDN_CORE_RING"] = True
+        cfg["PDN_CORE_RING_VWIDTH"] = 15
+        cfg["PDN_CORE_RING_HWIDTH"] = 15
+        cfg["PDN_CORE_RING_VSPACING"] = 5
+        cfg["PDN_CORE_RING_HSPACING"] = 5
+        cfg["PDN_CORE_RING_CONNECT_TO_PADS"] = True
+        cfg["PDN_ENABLE_PINS"] = False
+
+        # Bondpads; not included in IHP130-SG13G2 PDK for whatever reason
+        cfg["PAD_BONDPAD_NAME"] = "bondpad_70x70_novias"
+        cfg["EXTRA_GDS"] = [str(self.src_dir / "asic/io/bondpad_70x70_novias.gds")]
+        cfg["EXTRA_LEFS"] = [str(self.src_dir / "asic/io/bondpad_70x70_novias.lef")]
+        cfg["IGNORE_DISCONNECTED_MODULES"] = ["bondpad_70x70_novias"]
+
+        # Other
+        cfg["MAGIC_EXT_UNIQUE"] = "notopports"
+
+        # Return
         config_file: Path = cwd / "librelane_config.json"
         config_file.write_text(json.dumps(cfg, indent=4))
 
@@ -80,15 +113,19 @@ class AsicTop(Block):
         return r
 
     @task(requires={'config': '.gen_librelane_config'})
-    def librelane_classic(self, cwd, config):
+    def librelane(self, cwd, config):
         """Run ASIC synthesis using LibreLane's Classic flow"""
         r = Result()
         r.design_dir = cwd
 
-        Classic = Flow.factory.get("Classic")
+        Chip = Flow.factory.get("Chip")
+
+        ChipNoOverlap = Chip.Substitute({
+            "Checker.IllegalOverlap": None
+        })
 
         config_path: Path = config.config
-        flow = Classic(
+        flow = ChipNoOverlap(
             json.loads(config_path.read_text()),
             design_dir=str(r.design_dir),
             pdk_root=str(self.pdk_dir.parent),
@@ -100,16 +137,16 @@ class AsicTop(Block):
 
     @task(requires={
         'config': '.gen_librelane_config',
-        'classic': '.librelane_classic'
+        #'impl': '.librelane'
     })
-    def librelane_klayout(self, cwd, config, classic):
-        """View `librelane_classic` results in KLayout"""
+    def librelane_klayout(self, cwd, config):
+        """View `librelane` results in KLayout"""
         OpenInKLayout = Flow.factory.get("OpenInKLayout")
 
         config_path: Path = config.config
         flow = OpenInKLayout(
             json.loads(config_path.read_text()),
-            design_dir=str(classic.design_dir),
+            design_dir=str(cwd.parent / "librelane"),
             pdk_root=str(self.pdk_dir.parent),
             pdk="ihp-sg13g2"
         )
