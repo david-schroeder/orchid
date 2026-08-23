@@ -18,6 +18,9 @@ class AsicTop(Block):
     """
 
     name = "asic_top"
+    DIE_WIDTH = 1200
+    DIE_HEIGHT = 1600
+    CORE_MARGIN = 375
 
     def setup(self):
         self.src_dir = self.flow.base_dir / "src"
@@ -80,8 +83,18 @@ class AsicTop(Block):
         # Floorplanning
         cfg["FP_SIZING"] = "absolute"
         cfg["FP_CORE_UTIL"] = 10
-        cfg["DIE_AREA"] = [0, 0, 1090, 1450]
-        cfg["CORE_AREA"] = [365, 365, 725, 1085]
+        cfg["DIE_AREA"] = [
+            0,
+            0,
+            self.DIE_WIDTH,
+            self.DIE_HEIGHT
+        ]
+        cfg["CORE_AREA"] = [
+            self.CORE_MARGIN,
+            self.CORE_MARGIN,
+            self.DIE_WIDTH - self.CORE_MARGIN,
+            self.DIE_HEIGHT - self.CORE_MARGIN
+        ]
 
         # I/O
         pad_config_file: Path = self.src_dir / "asic/io/pads.json"
