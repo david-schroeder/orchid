@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: David Schröder 2026
+
 from typing import TypeAlias
 from enum import StrEnum
 from dataclasses import dataclass

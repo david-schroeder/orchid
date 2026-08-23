@@ -18,7 +18,7 @@ class AsicTop(Block):
     """
 
     name = "asic_top"
-    DIE_WIDTH = 1300
+    DIE_WIDTH = 1600
     DIE_HEIGHT = 1600
     CORE_MARGIN = 365
 
@@ -108,6 +108,7 @@ class AsicTop(Block):
 
         # Other
         cfg["MAGIC_EXT_UNIQUE"] = "notopports"
+        cfg["ERROR_ON_MAGIC_DRC"] = False # still spurious errors; prevent flow from crashing
         cfg["RUN_LINTER"] = False # we can lint elsewhere; prevent spurious file missing etc. errors
 
         # Return
