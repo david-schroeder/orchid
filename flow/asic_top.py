@@ -3,7 +3,7 @@
 
 from pydesignflow import Block, task, Result
 
-from .tools import sv2v, gen_librelane_macros
+from .tools import sv2v
 
 import os
 import json
@@ -18,9 +18,9 @@ class AsicTop(Block):
     """
 
     name = "asic_top"
-    DIE_WIDTH = 1200
+    DIE_WIDTH = 1300
     DIE_HEIGHT = 1600
-    CORE_MARGIN = 375
+    CORE_MARGIN = 365
 
     def setup(self):
         self.src_dir = self.flow.base_dir / "src"
@@ -42,22 +42,9 @@ class AsicTop(Block):
         r.design = cwd / "design.v"
         return r
 
-    @task(hidden=True)
-    def gen_macros(self, cwd):
-        """Generate LibreLane macro configuration from PDK"""
-        r = Result()
-
-        # Generate SRAM macros
-        available = gen_librelane_macros.discover_macros(self.pdk_dir)
-        if not available:
-            raise FileNotFoundError("Could not find PDK SRAM macros!")
-
-        r.macros = available
-        return r
-
     @task(requires={
         'design': '.gen_verilog',
-        'macros': '.gen_macros'
+        'macros': 'macro_block.gen_macro_cfg'
     }, hidden=True)
     def gen_librelane_config(self, cwd, design, macros):
         """Generate LibreLane config for ASIC synthesis"""
@@ -78,7 +65,11 @@ class AsicTop(Block):
         cfg["VERILOG_FILES"] = list(map(str, [self.src_dir / "asic/rtl/asic_top.sv", design.design]))
         cfg["VERILOG_DEFINES"] = ["FUNCTIONAL"]
         cfg["VERILOG_POWER_DEFINE"] = "USE_POWER_PINS"
+
+        # Macros
         cfg["MACROS"] = macros.macros
+        cfg["PDN_CFG"] = str(macros.pdn_cfg_script)
+        cfg |= macros.macro_config
 
         # Floorplanning
         cfg["FP_SIZING"] = "absolute"
@@ -117,6 +108,7 @@ class AsicTop(Block):
 
         # Other
         cfg["MAGIC_EXT_UNIQUE"] = "notopports"
+        cfg["RUN_LINTER"] = False # we can lint elsewhere; prevent spurious file missing etc. errors
 
         # Return
         config_file: Path = cwd / "librelane_config.json"

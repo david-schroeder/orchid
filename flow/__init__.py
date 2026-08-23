@@ -5,6 +5,7 @@ from pydesignflow import Flow
 
 from .fpga_top import FpgaTop
 from .asic_top import AsicTop
+from .asic_macros import AsicMacros
 from .system_tb import SystemTb
 from .simlibs_questa import SimlibsQuesta
 from .module_tb import ModuleTb
@@ -15,12 +16,19 @@ flow = Flow()
 # Hardware
 # --------
 
+# Common
 flow['srcs'] = Sources()
-
-flow['fpga_top'] = FpgaTop(dependency_map={'srcs':'srcs'})
-flow['asic_top'] = AsicTop(dependency_map={'srcs':'srcs'})
-
 flow['simlibs_questa'] = SimlibsQuesta()
+
+# ASIC
+flow['asic_macros'] = AsicMacros()
+flow['asic_top'] = AsicTop(dependency_map={
+    'srcs':'srcs',
+    'macro_block':'asic_macros'
+})
+
+# FPGA
+flow['fpga_top'] = FpgaTop(dependency_map={'srcs':'srcs'})
 
 # Testbenches
 # -----------
