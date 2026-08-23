@@ -23,6 +23,7 @@ SPDX-License-Identifier = "SHL-2.1"
 path = [
     "src/asic/io/iopins.cfg",
     "src/asic/io/pads.json",
+    "img/*.png"
 ]
 SPDX-FileCopyrightText = "David Schröder 2026"
 SPDX-License-Identifier = "SHL-2.1"
