@@ -1,13 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: David Schröder 2026
 
-from typing import TypeAlias
 from enum import StrEnum
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-
-
-Microns: TypeAlias = int
 
 
 class Orientation(StrEnum):
@@ -21,8 +17,8 @@ class Orientation(StrEnum):
 class MacroInstance:
     macro: type["DesignMacro"]
     inst_name: str
-    x: Microns
-    y: Microns
+    x: int
+    y: int
     orientation: Orientation = Orientation.NORTH
 
     def get_pdn_connections(self) -> list[str]:
@@ -37,7 +33,7 @@ class DesignMacro(ABC):
 
     @classmethod
     def Instance(cls, name: str,
-        x: Microns, y: Microns,
+        x: int, y: int,
         dir: Orientation = Orientation.NORTH
     ):
         return MacroInstance(cls, name, x, y, dir)
