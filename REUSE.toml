@@ -4,6 +4,8 @@ version = 1
 # Documentation files:
 path = [
     "README.md",
+    "CLAUDE.md",
+    "llm/*.md",
     "docs/**/*.rst",
     "docs/**/*.svg",
     "requirements.txt",
