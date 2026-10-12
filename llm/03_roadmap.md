@@ -8,17 +8,6 @@ this file instead of marking them. Items marked ❓ need a user decision (see
 Principle: the example design in `src/` keeps building end-to-end between steps; no
 big-bang rewrite.
 
-## Phase 1 — Separate design data from flow code
-
-- Design-specific constants (macro instances and positions, die size, core margin, clock
-  port/period, pad lists) live in design config under `src/`, read by the flow.
-  (Some of this is expected to be solved by the in-house digital flow rewrite; do not
-  contort the LibreLane-based code for it.)
-- Data passed between tasks is JSON-serializable.
-- A macro-provider interface: "given instances, emit macro views + PDN config",
-  independent of the toplevel block.
-- A PDK descriptor object; blocks stop reading bare environment variables.
-
 ## Phase 2 — `DigitalMacro` block
 
 - Extract the generic digital hardening path (preprocess -> LibreLane config -> run ->
@@ -73,6 +62,5 @@ big-bang rewrite.
 
 ## Ordering notes
 
-- Phase 1 precedes the rest (config separation, PDK abstraction).
 - The macro-product schema (phase 2) gates phases 3–4.
 - Phase 5 is independent of phases 3–4 after phase 2 and may run in parallel.

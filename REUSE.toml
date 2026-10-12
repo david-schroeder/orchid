@@ -24,7 +24,6 @@ SPDX-License-Identifier = "SHL-2.1"
 [[annotations]]
 path = [
     "src/asic/io/iopins.cfg",
-    "src/asic/io/pads.json",
     "img/*.png"
 ]
 SPDX-FileCopyrightText = "David Schröder 2026"
@@ -32,8 +31,8 @@ SPDX-License-Identifier = "SHL-2.1"
 
 [[annotations]]
 path = [
-    "src/asic/io/bondpad_70x70_novias.gds",
-    "src/asic/io/bondpad_70x70_novias.lef",
+    "flow/pdk/ihp_sg13g2/bondpad_70x70_novias.gds",
+    "flow/pdk/ihp_sg13g2/bondpad_70x70_novias.lef",
 ]
 SPDX-FileCopyrightText = "2025 LibreLane Template contributors"
 SPDX-License-Identifier = "Apache-2.0"

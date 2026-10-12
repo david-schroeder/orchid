@@ -39,6 +39,16 @@ frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with
     path runs) without proprietary tools.
   - Lists/dicts received from other tasks' `Result`s are copied before mutation.
 - **`src/`**: example/template content only; minimal and generic.
+- **Design config**: Python modules named `config.py`, one per implementation directory
+  (`src/asic/config.py`; per digital/analog macro `src/macros/<name>/config.py`). Each
+  defines a `config` object built from the dataclasses in `flow/config.py` (plain data,
+  no flow logic). A hidden `always_rebuild` task loads it and passes it on as JSON
+  (`config.to_data`/`from_data`). Tool-specific settings get an explicit escape hatch
+  (e.g. a raw `librelane` override dict), not first-class fields.
+- **PDK**: one `flow.pdk.Pdk` descriptor instance, created in `flow/__init__.py` and passed
+  to block constructors. Hard macros (PDK SRAMs, later digital/analog macros) implement
+  `flow.macro.HardMacro`. Ownership of tool settings: PDK-inherent ones live in the PDK
+  plugin or macro provider, tool workarounds in the block, design choices in the config.
 - **Naming**: block names lowercase snake_case; macro instances named by macro (exact scheme
   decided in phase 2).
 - **Docs**: describe target and intent only — never current state. Remove roadmap items
@@ -47,19 +57,15 @@ frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with
 
 ## Open questions (need a user decision before the corresponding phase)
 
-1. **Directory layout for multiple macros** under `src/`: one dir per macro with a config
-   file, or one central config enumerating macros and instances?
-2. **Config format** for design/macro declarations: Python modules, JSON/TOML, or ORDeC?
-3. **Where SRAMs live**: external macros of the digital macro using them, or at chip
+1. **Where SRAMs live**: external macros of the digital macro using them, or at chip
    toplevel only?
-4. **Open simulators** for the ASIC path (Verilator, Icarus, CocoTB?) and for mixed-signal
+2. **Open simulators** for the ASIC path (Verilator, Icarus, CocoTB?) and for mixed-signal
    (NGSpice + behavioral digital models, XSPICE, co-sim in ORDeC?).
-5. **Digital top-level routing in `ChipTop`**: OpenROAD via LibreLane steps vs. wait for the
+3. **Digital top-level routing in `ChipTop`**: OpenROAD via LibreLane steps vs. wait for the
    in-house flow.
-6. **LVS/DRC engine** of record: KLayout (ORDeC) vs. Magic/Netgen (LibreLane).
-7. **Second PDK** (sky130) as a template goal, or IHP SG13G2 only?
-8. Should the **FPGA flow** remain in the template long-term or become an optional module?
-9. Final naming of `DigitalMacro` / `AnalogMacro` / `ChipTop` (proposals).
+4. **LVS/DRC engine** of record: KLayout (ORDeC) vs. Magic/Netgen (LibreLane).
+5. **Second PDK** (sky130) as a template goal, or IHP SG13G2 only?
+6. Should the **FPGA flow** remain in the template long-term or become an optional module?
 
 ## Pointers
 

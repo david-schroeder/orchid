@@ -10,8 +10,11 @@ from .system_tb import SystemTb
 from .simlibs_questa import SimlibsQuesta
 from .module_tb import ModuleTb
 from .sources import Sources
+from .pdk.ihp_sg13g2 import IhpSg13g2
 
 flow = Flow()
+
+pdk = IhpSg13g2()
 
 # Hardware
 # --------
@@ -21,8 +24,8 @@ flow['srcs'] = Sources()
 flow['simlibs_questa'] = SimlibsQuesta()
 
 # ASIC
-flow['asic_macros'] = AsicMacros()
-flow['asic_top'] = AsicTop(dependency_map={
+flow['asic_macros'] = AsicMacros(pdk, dependency_map={'srcs':'srcs'})
+flow['asic_top'] = AsicTop(pdk, dependency_map={
     'srcs':'srcs',
     'macro_block':'asic_macros'
 })

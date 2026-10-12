@@ -74,16 +74,17 @@ Verify against the real tree; this is the convention new work should follow.
 ```
 src/
 ├── rtl/<macro_or_block>/     # Shared (FPGA + ASIC) RTL, one directory per module/macro
-├── asic/                     # ASIC-implementation-only sources/config (padring, IO, PDN scripts)
+├── asic/                     # ASIC-implementation-only sources; config.py (floorplan, padring,
+│                             #   clock, macro placements), IO and PDN scripts
 ├── fpga/                     # FPGA-implementation-only sources/config (rtl, xdc, pincheck, ip)
 ├── ams/<macro>/              # ORDeC sources (.ord / .py) per analog macro incl. testbenches
-├── macros/                   # Declarations/config of macro instances for the macro blocks
+├── macros/<macro>/           # Per-macro sources and config.py for the macro blocks
 ├── chip/                     # AMS toplevel (ORDeC), floorplan, padring, constraints
 ├── tb/                       # System / module / mixed-signal testbenches
 └── common/                   # Shared helpers (waveform setups, ...)
 ```
 
-The exact detail is decided during roadmap phases 1–4.
+The exact detail is decided during roadmap phases 2–4.
 
 ### `flow/`
 
@@ -92,7 +93,10 @@ flow/
 ├── __init__.py       # Builds the global Flow(); registers blocks and wires dependencies
 ├── <block>.py        # One module per flow block (sources, digital macro, analog macro,
 │                     #   chip top, FPGA top, testbenches, ...)
-├── pdk/              # PDK plugins (macro definitions, PDN recipes, corners, decks)
+├── config.py         # Design config schema (dataclasses) + load / JSON conversion
+├── macro.py          # Macro-provider interface (HardMacro)
+├── pdk/              # Pdk descriptor base; one plugin package per PDK (macro definitions,
+│                     #   PDN recipes, corners, decks, bundled PDK supplements)
 └── tools/            # Thin wrappers for external tools (LibreLane/Yosys/OpenROAD, slang,
                       #   KLayout, NGSpice, Magic/Netgen, simulators, Vivado, ...)
 ```
