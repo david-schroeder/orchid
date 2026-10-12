@@ -3,7 +3,8 @@
 # Modified by David Schröder 2026
 
 from pydesignflow import Block, task, Result
-from .tools import vivado
+from .tools import vivado, slang
+import shutil
 import subprocess
 
 class Sources(Block):
@@ -40,17 +41,17 @@ class Sources(Block):
         """RTL + verification sources for FPGA synthesis"""
         r = Result()
 
-        design_srcs_pkg = srcs_rtl.design_srcs_pkg
+        design_srcs_pkg = list(srcs_rtl.design_srcs_pkg)
         design_srcs_pkg += [x for x in self.fpga_dir.glob("rtl/pkg/*.sv")]
 
-        design_srcs = srcs_rtl.design_srcs
+        design_srcs = list(srcs_rtl.design_srcs)
         design_srcs += [x for x in self.fpga_dir.glob("rtl/*.sv")]
         design_srcs += [x for x in self.fpga_dir.glob("rtl/*.v")]
 
         r.design_srcs = design_srcs_pkg + design_srcs
 
         r.defines = srcs_rtl.defines | {"FPGA": 1}
-        r.include_dirs = srcs_rtl.include_dirs
+        r.include_dirs = list(srcs_rtl.include_dirs)
         r.tb_srcs = [x for x in self.src_dir.glob("tb/*.sv")]
         r.tb_srcs += [vivado.vivado_dir() / "data/verilog/src/glbl.v"]
         r.xcis = []
@@ -64,21 +65,27 @@ class Sources(Block):
         """RTL + verification sources for ASIC synthesis"""
         r = Result()
 
-        design_srcs_pkg = srcs_rtl.design_srcs_pkg
+        design_srcs_pkg = list(srcs_rtl.design_srcs_pkg)
         design_srcs_pkg += [x for x in self.asic_dir.glob("rtl/pkg/*.sv")]
 
-        design_srcs = srcs_rtl.design_srcs
-        # asic_top.sv is handled separately because its USE_POWER_PINS config should not be squashed by sv2v
-        design_srcs += [x for x in self.asic_dir.glob("rtl/*.sv") if x != self.asic_dir / "rtl/asic_top.sv"]
+        design_srcs = list(srcs_rtl.design_srcs)
+        design_srcs += [x for x in self.asic_dir.glob("rtl/*.sv")]
         design_srcs += [x for x in self.asic_dir.glob("rtl/*.v")]
 
         r.design_srcs = design_srcs_pkg + design_srcs
         r.defines = srcs_rtl.defines
+        r.include_dirs = list(srcs_rtl.include_dirs)
         return r
 
-    @task(requires={"srcs":".srcs"})
+    @task(requires={"srcs":".srcs_asic"})
     def lint(self, cwd, srcs):
         """Run static code quality assessment"""
+        slang.lint(srcs.design_srcs, srcs.defines, srcs.include_dirs, ["--ignore-unknown-modules"])
+
+        if shutil.which('verible-verilog-lint') is None:
+            print("verible-verilog-lint not found; skipping Verible style lint.")
+            return
+
         rules = [
             'always-comb',
             'always-comb-blocking',

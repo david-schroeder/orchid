@@ -10,7 +10,7 @@
 | PyDesignFlow | Flow orchestration, CLI |
 | LibreLane | Digital synth/PnR/signoff until replaced by the in-house flow |
 | ORDeC (`ordec`; sibling clone `../ordec`) | Analog/AMS design data, sims, layout, DRC/LVS |
-| slang | SystemVerilog preprocessing/elaboration/conversion (replaces sv2v), lint |
+| slang | SystemVerilog frontend: yosys-slang plugin in synthesis (LibreLane `USE_SLANG`), pyslang for elaboration checks and lint |
 | Yosys, OpenROAD, Magic, Netgen, KLayout | Underlying digital synthesis/PnR/signoff tools |
 | NGSpice | Analog simulation (via ORDeC) |
 | Verible | Lint |
@@ -19,8 +19,9 @@
 | IHP-Open-PDK `ihp-sg13g2` | PDK |
 
 Environment: `source .venv/bin/activate`; `PDK_ROOT` and `ORDEC_PDK_IHP_SG13G2` point to the
-`ihp-sg13g2` directory of the PDK checkout. `setup_flow` is a user-local, gitignored script
-that sets PATH/licences and defines the alias `flow="python shortcut.py"`.
+`ihp-sg13g2` directory of the PDK checkout. Yosys must be able to load the yosys-slang
+frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with `USE_SLANG`.
+`setup_flow` is a user-local, gitignored script that sets PATH/licences and defines the alias `flow="python shortcut.py"`.
 
 ## Conventions
 
@@ -56,10 +57,9 @@ that sets PATH/licences and defines the alias `flow="python shortcut.py"`.
 5. **Digital top-level routing in `ChipTop`**: OpenROAD via LibreLane steps vs. wait for the
    in-house flow.
 6. **LVS/DRC engine** of record: KLayout (ORDeC) vs. Magic/Netgen (LibreLane).
-7. **slang integration**: CLI/pyslang conversion output vs. Yosys-slang plugin.
-8. **Second PDK** (sky130) as a template goal, or IHP SG13G2 only?
-9. Should the **FPGA flow** remain in the template long-term or become an optional module?
-10. Final naming of `DigitalMacro` / `AnalogMacro` / `ChipTop` (proposals).
+7. **Second PDK** (sky130) as a template goal, or IHP SG13G2 only?
+8. Should the **FPGA flow** remain in the template long-term or become an optional module?
+9. Final naming of `DigitalMacro` / `AnalogMacro` / `ChipTop` (proposals).
 
 ## Pointers
 

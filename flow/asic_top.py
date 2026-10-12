@@ -3,7 +3,7 @@
 
 from pydesignflow import Block, task, Result
 
-from .tools import sv2v
+from .tools import slang
 
 import os
 import json
@@ -21,6 +21,7 @@ class AsicTop(Block):
     DIE_WIDTH = 1600
     DIE_HEIGHT = 1600
     CORE_MARGIN = 365
+    POWER_DEFINE = "USE_POWER_PINS"
 
     def setup(self):
         self.src_dir = self.flow.base_dir / "src"
@@ -28,22 +29,23 @@ class AsicTop(Block):
         self.pdk_dir = Path(os.environ["PDK_ROOT"]).resolve()
 
     @task(requires={'srcs':'srcs.srcs_asic'}, hidden=True)
-    def gen_verilog(self, cwd, srcs):
-        """Convert design sources to single verilog file"""
+    def elaborate(self, cwd, srcs):
+        """Check design sources with slang (with and without power pins)"""
         r = Result()
 
-        sv2v.convert_sv2v(
-            cwd,
-            list(map(str, srcs.design_srcs)),
-            str(cwd / "design.v"),
-            srcs.defines
-        )
+        r.design_srcs = list(map(str, srcs.design_srcs))
+        r.defines = dict(srcs.defines)
+        r.include_dirs = list(map(str, srcs.include_dirs))
 
-        r.design = cwd / "design.v"
+        # Hard macros / pad cells are blackboxes resolved later by Yosys
+        cmdargs = ["--ignore-unknown-modules"]
+        for defines in (r.defines, r.defines | {self.POWER_DEFINE: 1}):
+            slang.elaborate(r.design_srcs, self.name, defines, r.include_dirs, cmdargs)
+
         return r
 
     @task(requires={
-        'design': '.gen_verilog',
+        'design': '.elaborate',
         'macros': 'macro_block.gen_macro_cfg'
     }, hidden=True)
     def gen_librelane_config(self, cwd, design, macros):
@@ -62,9 +64,11 @@ class AsicTop(Block):
         cfg["GND_NETS"] = ["VSS"]
 
         # Sources
-        cfg["VERILOG_FILES"] = list(map(str, [self.src_dir / "asic/rtl/asic_top.sv", design.design]))
-        cfg["VERILOG_DEFINES"] = ["FUNCTIONAL"]
-        cfg["VERILOG_POWER_DEFINE"] = "USE_POWER_PINS"
+        cfg["VERILOG_FILES"] = list(design.design_srcs)
+        cfg["VERILOG_DEFINES"] = ["FUNCTIONAL"] + [f"{k}={v}" for k, v in design.defines.items()]
+        cfg["VERILOG_INCLUDE_DIRS"] = list(design.include_dirs)
+        cfg["VERILOG_POWER_DEFINE"] = self.POWER_DEFINE
+        cfg["USE_SLANG"] = True
 
         # Macros
         cfg["MACROS"] = macros.macros

@@ -20,9 +20,11 @@ times with different constructor parameters — the mechanism used for macros.
 ## Sources
 
 Collects source file lists (RTL, packages, defines, include dirs, testbenches) per target
-(common / FPGA / ASIC) and provides `lint` (Verible and/or slang). SystemVerilog
-preprocessing/elaboration for the ASIC path is done with **slang** (replacing sv2v — see
-roadmap), preserving conditionals such as `USE_POWER_PINS` where required.
+(common / FPGA / ASIC) and provides `lint` (Verible and/or slang). The ASIC path has no
+SystemVerilog-to-Verilog conversion step: synthesis reads the sources directly through the
+**yosys-slang** frontend, and conditionals such as `USE_POWER_PINS` are resolved by the
+synthesis/netlisting tools per step. A flow task elaborates the same sources with
+**pyslang** (all relevant define variants) to fail early.
 
 ## DigitalMacro — generic, multiply instantiable
 
@@ -32,7 +34,7 @@ floorplan hints (size/utilization/pin order), power nets, sub-macros (e.g. SRAMs
 
 | Task | Description |
 |------|-------------|
-| `srcs` / `elaborate` | Select sources, preprocess/convert (slang) |
+| `srcs` / `elaborate` | Select sources, elaboration check (pyslang) |
 | `lint` | Static checks |
 | `sim_rtl` | RTL simulation (open simulator preferred; Questa optional) |
 | `synth` | Logic synthesis (Yosys) |

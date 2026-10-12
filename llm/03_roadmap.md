@@ -8,17 +8,6 @@ this file instead of marking them. Items marked ❓ need a user decision (see
 Principle: the example design in `src/` keeps building end-to-end between steps; no
 big-bang rewrite.
 
-## Soon — replace sv2v with slang
-
-- Use [slang](https://github.com/MikePopoloski/slang) (via `slang` CLI or `pyslang`) for
-  SystemVerilog parsing/elaboration/conversion in the ASIC path instead of sv2v.
-- Add a `flow/tools/` wrapper; the `Sources`/macro blocks call it instead of sv2v.
-- Preserve required preprocessor behavior (e.g. `USE_POWER_PINS` must survive for the
-  padring/toplevel sources) and handle files that should be excluded from conversion.
-- Slang can also back `lint`; consider using it for the lint task as well.
-- Remove the sv2v wrapper and its requirement afterwards.
-- Verify the conversion output is accepted by Yosys/LibreLane.
-
 ## Phase 1 — Separate design data from flow code
 
 - Design-specific constants (macro instances and positions, die size, core margin, clock
@@ -87,4 +76,3 @@ big-bang rewrite.
 - Phase 1 precedes the rest (config separation, PDK abstraction).
 - The macro-product schema (phase 2) gates phases 3–4.
 - Phase 5 is independent of phases 3–4 after phase 2 and may run in parallel.
-- The slang step is independent and should be done first.
