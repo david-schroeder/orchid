@@ -3,6 +3,7 @@
 
 """IHP SG13G2 PDK plugin."""
 
+import re
 from pathlib import Path
 
 from .. import Pdk
@@ -25,6 +26,29 @@ class IhpSg13g2(Pdk):
         if cell in SRAM_CELLS:
             return Sg13g2Sram(cell, self.root() / "libs.ref/sg13g2_sram")
         raise KeyError(f"{self.name}: unknown macro cell '{cell}'")
+
+    def sim_models(self, cwd: Path) -> list[Path]:
+        v = self.root() / "libs.ref/sg13g2_stdcell/verilog"
+        # Sequential cells read their inputs through the delayed nets of $setuphold/$recrem,
+        # which simulators without timing-check support (Icarus) leave undriven. Drive them
+        # from the undelayed inputs in a functional copy of the models.
+        stdcell = cwd / "sg13g2_stdcell_functional.v"
+        stdcell.write_text(re.sub(
+            r"^(\s*wire\s+)(delayed_\w+(?:\s*,\s*delayed_\w+)*)\s*;",
+            lambda m: m[1] + ", ".join(
+                f"{n} = {n.removeprefix('delayed_')}" for n in re.split(r"\s*,\s*", m[2])
+            ) + ";",
+            (v / "sg13g2_stdcell.v").read_text(),
+            flags=re.MULTILINE,
+        ))
+        return [v / "sg13g2_udp.v", stdcell]
+
+    def librelane_macro_config(self) -> dict:
+        return {
+            # Macro power grid: TopMetal1 stripes only (become the macro's power pins);
+            # signals up to Metal5. TopMetal2 stays free for the toplevel power grid.
+            "RT_MAX_LAYER": "Metal5",
+        }
 
     def librelane_padring_config(self) -> dict:
         return {

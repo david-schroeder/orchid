@@ -14,7 +14,7 @@
 | Yosys, OpenROAD, Magic, Netgen, KLayout | Underlying digital synthesis/PnR/signoff tools |
 | NGSpice | Analog simulation (via ORDeC) |
 | Verible | Lint |
-| Open simulator (Verilator/Icarus/CocoTB ❓) | ASIC RTL/netlist simulation |
+| Icarus Verilog (further open simulators ❓) | ASIC RTL/netlist simulation (macro testbenches, gate-level with PDK cell models) |
 | Vivado, QuestaSim | Optional: FPGA prototyping and simulation |
 | IHP-Open-PDK `ihp-sg13g2` | PDK |
 
@@ -43,14 +43,16 @@ frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with
   (`src/asic/config.py`; per digital/analog macro `src/macros/<name>/config.py`). Each
   defines a `config` object built from the dataclasses in `flow/config.py` (plain data,
   no flow logic). A hidden `always_rebuild` task loads it and passes it on as JSON
-  (`config.to_data`/`from_data`). Tool-specific settings get an explicit escape hatch
-  (e.g. a raw `librelane` override dict), not first-class fields.
+  (`config.to_data`/`from_data`; `None` fields are omitted since `Result`s cannot hold
+  `None`). Tool-specific settings get an explicit escape hatch (e.g. a raw `librelane`
+  override dict), not first-class fields.
 - **PDK**: one `flow.pdk.Pdk` descriptor instance, created in `flow/__init__.py` and passed
   to block constructors. Hard macros (PDK SRAMs, later digital/analog macros) implement
   `flow.macro.HardMacro`. Ownership of tool settings: PDK-inherent ones live in the PDK
   plugin or macro provider, tool workarounds in the block, design choices in the config.
-- **Naming**: block names lowercase snake_case; macro instances named by macro (exact scheme
-  decided in phase 2).
+- **Naming**: block names lowercase snake_case; macro blocks are `macro_<name>`, `<name>`
+  being the macro's directory `src/macros/<name>/`; the hardened cell is named after the
+  macro's top module.
 - **Docs**: describe target and intent only — never current state. Remove roadmap items
   when done.
 - **Git**: see `CLAUDE.md`.
@@ -59,8 +61,8 @@ frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with
 
 1. **Where SRAMs live**: external macros of the digital macro using them, or at chip
    toplevel only?
-2. **Open simulators** for the ASIC path (Verilator, Icarus, CocoTB?) and for mixed-signal
-   (NGSpice + behavioral digital models, XSPICE, co-sim in ORDeC?).
+2. **Open simulators**: beyond Icarus for the ASIC path (Verilator, CocoTB?), and for
+   mixed-signal (NGSpice + behavioral digital models, XSPICE, co-sim in ORDeC?).
 3. **Digital top-level routing in `ChipTop`**: OpenROAD via LibreLane steps vs. wait for the
    in-house flow.
 4. **LVS/DRC engine** of record: KLayout (ORDeC) vs. Magic/Netgen (LibreLane).

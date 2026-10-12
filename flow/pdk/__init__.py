@@ -35,6 +35,17 @@ class Pdk(ABC):
         """LibreLane config options for designs with a padring."""
         return {}
 
+    def librelane_macro_config(self) -> dict:
+        """LibreLane config options for hardening a macro (e.g. layers reserved for the toplevel)."""
+        return {}
+
     @abstractmethod
     def macro(self, cell: str) -> HardMacro:
         """Return the hard macro provider for a cell name; raise KeyError if unknown."""
+
+    @abstractmethod
+    def sim_models(self, cwd: Path) -> list[Path]:
+        """Return Verilog simulation models of the standard cells (for gate-level simulation).
+
+        Simulator-ready copies of the models may be written into cwd.
+        """

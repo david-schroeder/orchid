@@ -118,6 +118,15 @@ class Sg13g2Sram(HardMacro):
             parts.append(_PDN_CONNECT_TEMPLATE % (grid_name, "Metal4 TopMetal1"))
         return "\n\n".join(parts)
 
+    def sim_models(self) -> list[Path]:
+        # Cell wrapper + behavioral cores (with and without BIST) it may instantiate
+        v = self.lib_dir / "verilog"
+        return [
+            v / f"{self.name}.v",
+            v / "RM_IHPSG13_1P_core_behavioral.v",
+            v / "RM_IHPSG13_1P_core_behavioral_bm_bist.v",
+        ]
+
     def librelane_config(self) -> dict:
         return {
             "MAGIC_GDS_FLATGLOB": [

@@ -93,18 +93,59 @@ class AsicConfig:
     """Raw LibreLane config overrides, applied last. Backend-specific escape hatch."""
 
 
-def to_data(obj):
-    """Convert a config dataclass into JSON-compatible data (for task Results)."""
+@dataclass
+class Testbench:
+    """Self-checking testbench: passes by finishing, fails via ``$fatal``/``$error``."""
+    top: str
+    """Testbench top module."""
+    srcs: list[Path]
+    """Testbench sources (the design under test is added by the flow)."""
+
+
+@dataclass
+class DigitalMacroConfig:
+    """Configuration of a digital macro, hardened by a DigitalMacro block."""
+    top: str
+    """Top module name; also the name of the hardened macro cell."""
+    srcs: list[Path]
+    """RTL sources in compilation order (packages first)."""
+    floorplan: Floorplan
+    clock: Clock
+    power: PowerNets = field(default_factory=PowerNets)
+    defines: dict = field(default_factory=dict)
+    """Verilog defines (name -> value)."""
+    include_dirs: list[Path] = field(default_factory=list)
+    io_pin_order: Path | None = None
+    """Pin order file for the I/O placer."""
+    pdn_script: Path | None = None
+    """PDN script; required if sub-macros need PDN commands (appended by the flow)."""
+    macros: list[MacroPlacement] = field(default_factory=list)
+    """Hard macros placed inside this macro (e.g. PDK SRAMs)."""
+    testbench: Testbench | None = None
+    """Testbench for RTL and gate-level simulation of this macro."""
+    librelane: dict = field(default_factory=dict)
+    """Raw LibreLane config overrides, applied last. Backend-specific escape hatch."""
+
+
+def to_data(obj, keep_paths: bool = False):
+    """Convert a config dataclass into JSON-compatible data (for task Results).
+
+    Fields set to None are omitted (Results cannot hold None; from_data restores the default).
+    With keep_paths, Path objects are kept (Result stores them relative to the build dir).
+    """
     if dataclasses.is_dataclass(obj):
-        return {f.name: to_data(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+        return {
+            f.name: to_data(getattr(obj, f.name), keep_paths)
+            for f in dataclasses.fields(obj) if getattr(obj, f.name) is not None
+        }
     if isinstance(obj, Enum):
         return obj.value
     if isinstance(obj, Path):
-        return str(obj)
+        return obj if keep_paths else str(obj)
     if isinstance(obj, (list, tuple)):
-        return [to_data(x) for x in obj]
+        return [to_data(x, keep_paths) for x in obj]
     if isinstance(obj, dict):
-        return {k: to_data(v) for k, v in obj.items()}
+        return {k: to_data(v, keep_paths) for k, v in obj.items()}
     return obj
 
 
@@ -119,6 +160,9 @@ def from_data(cls, data):
     if origin is list:
         (arg,) = typing.get_args(cls)
         return [from_data(arg, x) for x in data]
+    if origin is dict:
+        (_, arg) = typing.get_args(cls)
+        return {k: from_data(arg, v) for k, v in data.items()}
     if dataclasses.is_dataclass(cls):
         hints = typing.get_type_hints(cls)
         return cls(**{

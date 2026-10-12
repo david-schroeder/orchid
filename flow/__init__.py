@@ -6,6 +6,7 @@ from pydesignflow import Flow
 from .fpga_top import FpgaTop
 from .asic_top import AsicTop
 from .asic_macros import AsicMacros
+from .digital_macro import DigitalMacro
 from .system_tb import SystemTb
 from .simlibs_questa import SimlibsQuesta
 from .module_tb import ModuleTb
@@ -29,6 +30,14 @@ flow['asic_top'] = AsicTop(pdk, dependency_map={
     'srcs':'srcs',
     'macro_block':'asic_macros'
 })
+
+# Digital macros (config: src/macros/<name>/config.py)
+digital_macros = [
+    'counter',
+]
+
+for name in digital_macros:
+    flow[f'macro_{name}'] = DigitalMacro(name, pdk)
 
 # FPGA
 flow['fpga_top'] = FpgaTop(dependency_map={'srcs':'srcs'})

@@ -3,10 +3,8 @@
 # Modified by David Schröder 2026
 
 from pydesignflow import Block, task, Result
-from .tools import vivado, slang
+from .tools import vivado, slang, verible
 from . import config
-import shutil
-import subprocess
 
 class Sources(Block):
     """Hardware sources"""
@@ -91,40 +89,4 @@ class Sources(Block):
         """Run static code quality assessment"""
         slang.lint(srcs.design_srcs, srcs.defines, srcs.include_dirs, ["--ignore-unknown-modules"])
 
-        if shutil.which('verible-verilog-lint') is None:
-            print("verible-verilog-lint not found; skipping Verible style lint.")
-            return
-
-        rules = [
-            'always-comb',
-            'always-comb-blocking',
-            'always-ff-non-blocking',
-            'case-missing-default',
-            'explicit-function-lifetime',
-            'explicit-function-task-parameter-type',
-            'explicit-parameter-storage-type',
-            'explicit-task-lifetime',
-            'forbid-consecutive-null-statements',
-            'forbid-defparam',
-            'forbid-line-continuations',
-            'generate-label',
-            'module-begin-block',
-            'module-filename',
-            'module-parameter',
-            'module-port',
-            'one-module-per-file',
-            'package-filename',
-            'packed-dimensions-range-ordering',
-            #'port-name-suffix',
-            'undersized-binary-literal',
-            'v2001-generate-begin',
-            'void-cast',
-        ]
-        # Don't lint verilog files
-        lint_srcs = [fn for fn in srcs.design_srcs if fn.suffix != '.v']
-        try:
-            subprocess.check_call(['verible-verilog-lint', '--ruleset', 'none', '--rules', ",".join(rules)]+lint_srcs, cwd=cwd)
-        except subprocess.CalledProcessError as e:
-            print(f"WARNING: verible-verilog-lint returned {e.returncode} errors.")
-        else:
-            print("Lint returned no errors.")
+        verible.lint(srcs.design_srcs, cwd)

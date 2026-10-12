@@ -28,9 +28,17 @@ synthesis/netlisting tools per step. A flow task elaborates the same sources wit
 
 ## DigitalMacro — generic, multiply instantiable
 
-Parameters (conceptual): macro name, RTL source selection, top module, clock/constraint spec,
-floorplan hints (size/utilization/pin order), power nets, sub-macros (e.g. SRAMs), backend
-(`librelane` first, in-house later).
+One block instance `macro_<name>` per macro, declared explicitly by name in
+`flow/__init__.py` (like all blocks); its config is read from `src/macros/<name>/config.py`. The config
+(`DigitalMacroConfig`) holds: top module (= macro cell name), RTL sources, defines/include
+dirs, clock, floorplan (absolute die size + core margin), power nets, optional pin order and
+PDN script, sub-macros (e.g. PDK SRAMs, as `MacroPlacement`s resolved by the PDK plugin),
+testbench, and a raw backend override dict. Macro RTL lives in `src/rtl/<name>/` (shared
+with the FPGA path); macro testbench and config in `src/macros/<name>/`.
+
+Macro-mode hardening: no padring, no core ring, power grid on the lower PDN layer only with
+its stripes promoted to pins; PDK-specific layer limits (keeping upper layers free for the
+toplevel grid) come from `Pdk.librelane_macro_config()`.
 
 | Task | Description |
 |------|-------------|
@@ -45,14 +53,37 @@ floorplan hints (size/utilization/pin order), power nets, sub-macros (e.g. SRAMs
 | `view` | KLayout/OpenROAD GUI |
 | `export` | Assemble the *macro product* consumed by `ChipTop` |
 
-**Macro product** (`Result`): `lef`, `gds`, `verilog` (netlist + behavioral/blackbox),
-`lib` per corner, `sdf`/`spef`, `spice`, pin list, PDN connection info, size/obstructions,
-metadata (name, version, PDK).
+Simulation tasks run the macro's self-checking testbench (passes by `$finish`, fails via
+`$fatal`) through an open simulator wrapper in `flow/tools/`: `sim_rtl` against the RTL,
+`sim_gl` against the exported netlist plus PDK cell models (`Pdk.sim_models()`) and
+sub-macro models (`HardMacro.sim_models()`).
 
-**Backend swap:** LibreLane-specific code is isolated in a backend adapter so the block
-interface (parameters in, macro product out) stays stable when the in-house PyDesignFlow
-replacement lands. That replacement is built from fine-grained blocks (synth, floorplan,
-place, cts, route, fill, signoff).
+**Macro product** — `flow.macro.MacroProduct`, returned as `product` by every macro block's
+`export` task (`config.to_data(..., keep_paths=True)`; read back with
+`config.from_data(MacroProduct, ...)`). It is the central interface between macro blocks
+and the toplevel; analog and external macros produce the same schema.
+
+| Field | Content |
+|-------|---------|
+| `name`, `kind`, `pdk` | Cell name; `digital` / `analog` / `external`; PDK name |
+| `width`, `height` | Macro size in µm (from LEF) |
+| `pins` | `Pin(name, direction, use, layers)` per LEF pin; supply pins have use `POWER`/`GROUND` and carry the PDN connection layer |
+| `gds`, `lef` | Physical views (lists of files) |
+| `vh`, `nl`, `pnl` | Verilog blackbox header, gate netlist, powered gate netlist |
+| `model` | Behavioral Verilog for system simulation (RTL for digital macros) |
+| `lib`, `sdf`, `spef` | Per-corner views: corner name/wildcard -> files |
+| `spice` | SPICE netlist(s) |
+| `metadata` | Free-form (backend, producing block, ...) |
+
+View field names mirror LibreLane design formats / `Macro` fields, so a product maps
+directly onto the backend's macro inputs. Export copies all views out of the backend run
+directory into `<view>[/<corner>]/<file>` under the export task directory.
+
+**Backend swap:** LibreLane-specific code (config variables, flow classes, run layout,
+hard-macro/PDN config) is isolated in the adapter `flow/tools/librelane.py`, shared by
+`DigitalMacro` and the ASIC toplevel, so the block interface (config in, macro product
+out) stays stable when the in-house PyDesignFlow replacement lands. That replacement is
+built from fine-grained blocks (synth, floorplan, place, cts, route, fill, signoff).
 
 ## AnalogMacro — generic, multiply instantiable, ORDeC-based
 

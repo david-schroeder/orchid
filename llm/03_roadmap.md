@@ -10,16 +10,11 @@ big-bang rewrite.
 
 ## Phase 2 — `DigitalMacro` block
 
-- Extract the generic digital hardening path (preprocess -> LibreLane config -> run ->
-  collect outputs) into a parametrized `DigitalMacro` block.
-- Define and document the **macro product** schema (LEF, GDS, netlist, LIB, SDF/SPEF, SPICE,
-  pins, metadata). This is the central interface for all later phases.
-- Isolate LibreLane in a backend adapter; use macro-mode settings (no padring, pin
-  placement, macro outputs).
 - Re-express the example: project core as a `DigitalMacro`, SRAMs as external macros (inside
-  the macro).
-- Per-macro tasks: `lint`, `sim_rtl`, gate-level sim.
-- Multiple instances driven by a list/config.
+  the macro); the ASIC toplevel places macro products (`MacroProduct` -> `HardMacro`
+  adapter incl. PDN grid commands) and excludes hardened macros' RTL from its synthesis
+  sources.
+- `sim_sdf`: SDF-annotated gate-level simulation of macros.
 
 ## Phase 3 — ORDeC integration and `AnalogMacro` block
 
