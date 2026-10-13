@@ -35,6 +35,10 @@ margin), power nets, optional pin order and PDN script, sub-macros (e.g. PDK SRA
 `MacroPlacement`s resolved by the PDK plugin), and a raw backend override dict. Macro RTL lives in `src/rtl/<name>/` (shared with the
 FPGA path); macro-specific files (pin order, PDN script) in `src/asic/macros/<name>/`.
 
+Macro hierarchy is composed in ORDeC only: digital macros instantiate no hardened macros
+except library hard macros (e.g. PDK SRAMs, placed inside the macro using them); digital and
+analog macros are combined by the analog (ORDeC) cell hierarchy up to `ChipTop`.
+
 Macro-mode hardening: no padring, no core ring, power grid on the lower PDN layer only with
 its stripes promoted to pins; PDK-specific layer limits (keeping upper layers free for the
 toplevel grid) come from `Pdk.librelane_macro_config()`.

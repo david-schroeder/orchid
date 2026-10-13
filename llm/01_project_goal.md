@@ -83,7 +83,7 @@ src/
 └── common/                   # Shared helpers (waveform setups, ...)
 ```
 
-The exact detail is decided during roadmap phases 2–4.
+The exact detail is decided during roadmap phases 3–4.
 
 ### `flow/`
 

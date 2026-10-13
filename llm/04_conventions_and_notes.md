@@ -63,15 +63,13 @@ frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with
 
 ## Open questions (need a user decision before the corresponding phase)
 
-1. **Where SRAMs live**: external macros of the digital macro using them, or at chip
-   toplevel only?
-2. **Open simulators**: beyond Icarus for the ASIC path (Verilator, CocoTB?), and for
+1. **Open simulators**: beyond Icarus for the ASIC path (Verilator, CocoTB?), and for
    mixed-signal (NGSpice + behavioral digital models, XSPICE, co-sim in ORDeC?).
-3. **Digital top-level routing in `ChipTop`**: OpenROAD via LibreLane steps vs. wait for the
+2. **Digital top-level routing in `ChipTop`**: OpenROAD via LibreLane steps vs. wait for the
    in-house flow.
-4. **LVS/DRC engine** of record: KLayout (ORDeC) vs. Magic/Netgen (LibreLane).
-5. **Second PDK** (sky130) as a template goal, or IHP SG13G2 only?
-6. Should the **FPGA flow** remain in the template long-term or become an optional module?
+3. **LVS/DRC engine** of record: KLayout (ORDeC) vs. Magic/Netgen (LibreLane).
+4. **Second PDK** (sky130) as a template goal, or IHP SG13G2 only?
+5. Should the **FPGA flow** remain in the template long-term or become an optional module?
 
 ## Pointers
 

@@ -8,14 +8,6 @@ this file instead of marking them. Items marked ❓ need a user decision (see
 Principle: the example design in `src/` keeps building end-to-end between steps; no
 big-bang rewrite.
 
-## Phase 2 — `DigitalMacro` block
-
-- Re-express the example: project core as a `DigitalMacro`, SRAMs as external macros (inside
-  the macro); the ASIC toplevel places macro products (`MacroProduct` -> `HardMacro`
-  adapter incl. PDN grid commands) and excludes hardened macros' RTL from its synthesis
-  sources.
-- SDF annotation for Icarus (generated `$sdf_annotate` module, `sim_sdf_icarus`).
-
 ## Phase 3 — ORDeC integration and `AnalogMacro` block
 
 - Add a tiny real analog example macro in ORD/Python under `src/analog/`.
@@ -57,5 +49,4 @@ big-bang rewrite.
 
 ## Ordering notes
 
-- The macro-product schema (phase 2) gates phases 3–4.
-- Phase 5 is independent of phases 3–4 after phase 2 and may run in parallel.
+- Phase 5 is independent of phases 3–4 and may run in parallel.

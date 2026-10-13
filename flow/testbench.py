@@ -80,7 +80,10 @@ class Testbench(Block):
             sdf = {f"{self.top}/{self.sdf_scope}": sdf} if sdf else {}
 
             if simulator == 'icarus':
-                icarus.simulate(srcs, tops, run_dir, v.defines, v.include_dirs)
+                if v.libs:
+                    raise RuntimeError("Icarus cannot simulate views requiring vendor "
+                        f"libraries ({', '.join(v.libs)}).")
+                icarus.simulate(srcs, tops, run_dir, v.defines, v.include_dirs, sdf)
             elif simulator == 'questasim':
                 questasim.simulate(srcs, tops, cwd=run_dir,
                     include_dirs=v.include_dirs, defines=v.defines, sdf=sdf,
@@ -105,6 +108,11 @@ class Testbench(Block):
     @task(requires={'view': 'dut.view_gl'})
     def sim_gl_icarus(self, cwd, view):
         """Gate-level simulation with Icarus Verilog"""
+        self.simulate('icarus', cwd, view)
+
+    @task(requires={'view': 'dut.view_sdf'})
+    def sim_sdf_icarus(self, cwd, view):
+        """SDF-annotated gate-level simulation with Icarus Verilog"""
         self.simulate('icarus', cwd, view)
 
     # QuestaSim tasks
