@@ -14,7 +14,7 @@ big-bang rewrite.
   the macro); the ASIC toplevel places macro products (`MacroProduct` -> `HardMacro`
   adapter incl. PDN grid commands) and excludes hardened macros' RTL from its synthesis
   sources.
-- `sim_sdf`: SDF-annotated gate-level simulation of macros.
+- SDF annotation for Icarus (generated `$sdf_annotate` module, `sim_sdf_icarus`).
 
 ## Phase 3 — ORDeC integration and `AnalogMacro` block
 
@@ -32,8 +32,8 @@ big-bang rewrite.
 - Explicit `padring` task (initially still driving LibreLane's chip flow for the
   digital-only case, then ChipTop-owned steps).
 - Global PDN, GDS merge, fill, full-chip DRC and LVS, signoff report.
-- Chip-level simulations: RTL with behavioral macro models; gate-level; SPICE/mixed on
-  selected paths (❓ mixed-signal simulator).
+- Chip-level simulations through `view_*` tasks of the toplevel: RTL with behavioral macro
+  models; gate-level; SPICE/mixed on selected paths (❓ mixed-signal simulator).
 - `tapeout_package`.
 
 ## Phase 5 — Replace LibreLane with an in-house PyDesignFlow digital flow

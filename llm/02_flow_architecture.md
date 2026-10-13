@@ -29,12 +29,12 @@ synthesis/netlisting tools per step. A flow task elaborates the same sources wit
 ## DigitalMacro — generic, multiply instantiable
 
 One block instance `macro_<name>` per macro, declared explicitly by name in
-`flow/__init__.py` (like all blocks); its config is read from `src/macros/<name>/config.py`. The config
-(`DigitalMacroConfig`) holds: top module (= macro cell name), RTL sources, defines/include
-dirs, clock, floorplan (absolute die size + core margin), power nets, optional pin order and
-PDN script, sub-macros (e.g. PDK SRAMs, as `MacroPlacement`s resolved by the PDK plugin),
-testbench, and a raw backend override dict. Macro RTL lives in `src/rtl/<name>/` (shared
-with the FPGA path); macro testbench and config in `src/macros/<name>/`.
+`flow/__init__.py` (like all blocks); its config is read from `src/asic/macros/<name>/config.py`.
+The config (`DigitalMacroConfig`) holds: top module (= macro cell name), RTL sources,
+defines/include dirs, clock, floorplan (absolute die size + core margin), power nets, optional
+pin order and PDN script, sub-macros (e.g. PDK SRAMs, as `MacroPlacement`s resolved by the PDK
+plugin), and a raw backend override dict. Macro RTL lives in `src/rtl/<name>/` (shared with the
+FPGA path); macro config in `src/asic/macros/<name>/`.
 
 Macro-mode hardening: no padring, no core ring, power grid on the lower PDN layer only with
 its stripes promoted to pins; PDK-specific layer limits (keeping upper layers free for the
@@ -44,19 +44,16 @@ toplevel grid) come from `Pdk.librelane_macro_config()`.
 |------|-------------|
 | `srcs` / `elaborate` | Select sources, elaboration check (pyslang) |
 | `lint` | Static checks |
-| `sim_rtl` | RTL simulation (open simulator preferred; Questa optional) |
 | `synth` | Logic synthesis (Yosys) |
 | `harden` | PnR to macro (LibreLane Chip flow first, in-house flow later) |
 | `drc`, `lvs` | Signoff checks (KLayout/Magic, Netgen) |
 | `sta` | Multi-corner STA, SDF/SPEF |
-| `sim_gl` / `sim_sdf` | Gate-level / SDF-annotated simulation |
 | `view` | KLayout/OpenROAD GUI |
 | `export` | Assemble the *macro product* consumed by `ChipTop` |
+| `view_rtl` / `view_gl` / `view_sdf` | Simulation views (RTL; netlist + PDK cell and sub-macro models; + SDF per corner) |
 
-Simulation tasks run the macro's self-checking testbench (passes by `$finish`, fails via
-`$fatal`) through an open simulator wrapper in `flow/tools/`: `sim_rtl` against the RTL,
-`sim_gl` against the exported netlist plus PDK cell models (`Pdk.sim_models()`) and
-sub-macro models (`HardMacro.sim_models()`).
+The macro block provides simulation views but knows nothing about testbenches; see
+*Simulation*.
 
 **Macro product** — `flow.macro.MacroProduct`, returned as `product` by every macro block's
 `export` task (`config.to_data(..., keep_paths=True)`; read back with
@@ -143,10 +140,31 @@ requirements only.
 
 - FPGA-oriented sims (Vivado/XSim/Questa, incl. post-synth/post-PnR with SDF) are an
   optional prototyping path.
-- ASIC-oriented sims reuse the same testbench sources against (a) RTL + behavioral macro
-  models, (b) post-synth/post-PnR netlist + SDF, (c) mixed with analog macro models. The
-  simulator abstraction in `flow/tools/` should include an open simulator backend
-  (Verilator / Icarus / CocoTB) so the ASIC path needs no proprietary tool (Future).
+A simulation is *testbench* × *design view* × *simulator*; the three are independent.
+
+- **Views** (`flow.testbench.SimView`): every design block (sources, macros, FPGA top, ASIC
+  top/`ChipTop`) offers hidden `always_rebuild` tasks `view_rtl`, `view_gl` and `view_sdf`
+  returning a `SimView` as `view`: design sources or netlist plus simulation models (PDK
+  cells, sub-macros, vendor primitives), extra top modules, defines, include dirs,
+  precompiled vendor libraries, SDF per corner and support files. A block offers only the
+  steps it has. Chip-level views compose macro products (`model` for behavioral, `nl` for
+  gate-level), allowing mixed RTL/gate-level simulation.
+  PDK cell models are the same for gate-level and SDF views and work in every simulator;
+  simulator-specific workarounds (e.g. driving timing-check delayed nets for Icarus) are
+  guarded by the simulator's predefined macro, never applied unconditionally.
+- **Testbenches**: all testbench sources live in `src/tb/`. A `Testbench` block binds one
+  testbench to one design block, wired as `dut` in its `dependency_map`
+  (`Testbench(srcs, top, sdf_scope, dependency_map)`, declared in `flow/__init__.py`;
+  sources are glob patterns). The binding is many-to-many by declaring further blocks; neither testbenches nor design blocks reference each other,
+  and nothing is discovered automatically.
+- **Simulators**: tasks `sim_<step>_<simulator>`, using the wrappers in `flow/tools/`
+  (Icarus as the open default for the ASIC path; QuestaSim and XSim optional). SDF views
+  are simulated once per corner. Further open simulators (Verilator, CocoTB) plug in the
+  same way.
+- **Testbench contract** for running unchanged on every view: instantiate the design by
+  its top module name, no parameter overrides differing from the implementation, no
+  hierarchical references into the design (or guarded by a define the view sets), inputs
+  driven away from active clock edges; self-checking (pass by `$finish`, fail via `$fatal`).
 
 ## PDK plugin
 

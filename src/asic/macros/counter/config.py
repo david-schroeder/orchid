@@ -5,10 +5,10 @@
 
 from pathlib import Path
 
-from flow.config import DigitalMacroConfig, Floorplan, Clock, PowerNets, Testbench
+from flow.config import DigitalMacroConfig, Floorplan, Clock, PowerNets
 
 here = Path(__file__).parent
-rtl = here.parents[1] / "rtl/counter"
+rtl = here.parents[2] / "rtl/counter"
 
 config = DigitalMacroConfig(
     top="counter",
@@ -17,5 +17,4 @@ config = DigitalMacroConfig(
     clock=Clock(port="clk_i", period_ns=10), # 100 MHz
     power=PowerNets(vdd=["VDD"], gnd=["VSS"]),
     io_pin_order=here / "iopins.cfg",
-    testbench=Testbench(top="counter_tb", srcs=[here / "counter_tb.sv"]),
 )

@@ -3,7 +3,9 @@
 # Modified by David Schröder 2026
 
 from pydesignflow import Block, task, Result
-from .tools.vivado import Vivado
+from . import config
+from .testbench import SimView
+from .tools.vivado import Vivado, vivado_dir
 from .tools import pincheck
 import datetime
 from pathlib import Path
@@ -23,6 +25,36 @@ class FpgaTop(Block):
             self.design_dir / "xdc" / "ddr.xdc",
             self.design_dir / "xdc" / "fpga_top.xdc",
         ]
+
+    def sim_view(self, srcs: list, libs: list, sdf: dict = {}, defines: dict = {}, include_dirs: list = []) -> Result:
+        """Result holding a SimView of srcs (with Xilinx glbl and XADC temperature input)."""
+        r = Result()
+        r.view = config.to_data(SimView(
+            srcs=[*srcs, vivado_dir() / "data/verilog/src/glbl.v"],
+            tops=["glbl"],
+            defines=defines,
+            include_dirs=include_dirs,
+            libs=libs,
+            sdf=sdf,
+            files=[self.design_dir / "ip/design.txt"],
+        ), keep_paths=True)
+        return r
+
+    @task(requires={'srcs':'srcs.srcs_fpga'}, always_rebuild=True, hidden=True)
+    def view_rtl(self, cwd, srcs):
+        """Simulation view: RTL"""
+        return self.sim_view(srcs.design_srcs, ["unisims", "secureip"],
+            defines=srcs.defines, include_dirs=srcs.include_dirs)
+
+    @task(requires={'syn':'.syn'}, always_rebuild=True, hidden=True)
+    def view_gl(self, cwd, syn):
+        """Simulation view: post-synthesis functional netlist"""
+        return self.sim_view([syn.verilog_funcsim], ["unisims", "secureip"])
+
+    @task(requires={'pnr':'.pnr'}, always_rebuild=True, hidden=True)
+    def view_sdf(self, cwd, pnr):
+        """Simulation view: post-PnR timing netlist with SDF"""
+        return self.sim_view([pnr.verilog_timesim], ["simprims", "secureip"], sdf={"default": pnr.sdf})
 
     @task(requires={'srcs':'srcs.srcs_fpga'}, hidden=True)
     def rtl_elaborate(self, cwd, srcs):

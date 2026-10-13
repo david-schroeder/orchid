@@ -7,9 +7,8 @@ from .fpga_top import FpgaTop
 from .asic_top import AsicTop
 from .asic_macros import AsicMacros
 from .digital_macro import DigitalMacro
-from .system_tb import SystemTb
 from .simlibs_questa import SimlibsQuesta
-from .module_tb import ModuleTb
+from .testbench import Testbench
 from .sources import Sources
 from .pdk.ihp_sg13g2 import IhpSg13g2
 
@@ -31,7 +30,7 @@ flow['asic_top'] = AsicTop(pdk, dependency_map={
     'macro_block':'asic_macros'
 })
 
-# Digital macros (config: src/macros/<name>/config.py)
+# Digital macros (config: src/asic/macros/<name>/config.py)
 digital_macros = [
     'counter',
 ]
@@ -44,18 +43,14 @@ flow['fpga_top'] = FpgaTop(dependency_map={'srcs':'srcs'})
 
 # Testbenches
 # -----------
+# Testbench(srcs=['<name>.sv'], ...): srcs are globs in src/tb/; dut is any block with view_* tasks
 
-module_tbs = [
-]
-
-for name in module_tbs:
-    flow[name] = ModuleTb(name, dependency_map={
-        'srcs':'srcs',
-        'simlibs_questa':'simlibs_questa',
-    })
-
-flow[f'system_tb'] = SystemTb(dependency_map={
-    'srcs':'srcs',
-    'simlibs_questa':'simlibs_questa',
-    'fpga_top':'fpga_top',
+flow['counter_tb'] = Testbench(dependency_map={
+    'dut': 'macro_counter',
+    'simlibs_questa': 'simlibs_questa'
 })
+flow['system_tb'] = Testbench(['system_tb.sv', 'nexys_video_board.sv'], sdf_scope='board_i/DUT',
+    dependency_map={
+        'dut': 'fpga_top',
+        'simlibs_questa': 'simlibs_questa'
+    })

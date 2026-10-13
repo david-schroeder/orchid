@@ -29,15 +29,15 @@ class IhpSg13g2(Pdk):
 
     def sim_models(self, cwd: Path) -> list[Path]:
         v = self.root() / "libs.ref/sg13g2_stdcell/verilog"
-        # Sequential cells read their inputs through the delayed nets of $setuphold/$recrem,
-        # which simulators without timing-check support (Icarus) leave undriven. Drive them
-        # from the undelayed inputs in a functional copy of the models.
-        stdcell = cwd / "sg13g2_stdcell_functional.v"
+        # Sequential cells read their inputs through the delayed nets of $setuphold/$recrem.
+        # Icarus leaves them undriven, so drive them from the undelayed inputs there; other
+        # simulators drive them from the timing checks (a second driver would cause X).
+        stdcell = cwd / "sg13g2_stdcell_sim.v"
         stdcell.write_text(re.sub(
-            r"^(\s*wire\s+)(delayed_\w+(?:\s*,\s*delayed_\w+)*)\s*;",
-            lambda m: m[1] + ", ".join(
+            r"^(\s*)wire\s+(delayed_\w+(?:\s*,\s*delayed_\w+)*)\s*;",
+            lambda m: m[0] + "\n`ifdef __ICARUS__\n" + m[1] + "assign " + ", ".join(
                 f"{n} = {n.removeprefix('delayed_')}" for n in re.split(r"\s*,\s*", m[2])
-            ) + ";",
+            ) + ";\n`endif",
             (v / "sg13g2_stdcell.v").read_text(),
             flags=re.MULTILINE,
         ))

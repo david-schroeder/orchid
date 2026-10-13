@@ -3,8 +3,9 @@
 # Modified by David Schröder 2026
 
 from pydesignflow import Block, task, Result
-from .tools import vivado, slang, verible
+from .tools import slang, verible
 from . import config
+from .testbench import SimView
 
 class Sources(Block):
     """Hardware sources"""
@@ -33,11 +34,22 @@ class Sources(Block):
 
         return r
 
+    @task(requires={'srcs_rtl': '.srcs_rtl'}, always_rebuild=True, hidden=True)
+    def view_rtl(self, cwd, srcs_rtl):
+        """Simulation view: common RTL sources"""
+        r = Result()
+        r.view = config.to_data(SimView(
+            srcs=srcs_rtl.design_srcs_pkg + srcs_rtl.design_srcs,
+            defines=srcs_rtl.defines,
+            include_dirs=srcs_rtl.include_dirs,
+        ), keep_paths=True)
+        return r
+
     @task(requires={
         'srcs_rtl': '.srcs_rtl'
     }, always_rebuild=True, hidden=True)
     def srcs_fpga(self, cwd, srcs_rtl):
-        """RTL + verification sources for FPGA synthesis"""
+        """RTL sources for FPGA synthesis"""
         r = Result()
 
         design_srcs_pkg = list(srcs_rtl.design_srcs_pkg)
@@ -51,8 +63,6 @@ class Sources(Block):
 
         r.defines = srcs_rtl.defines | {"FPGA": 1}
         r.include_dirs = list(srcs_rtl.include_dirs)
-        r.tb_srcs = [x for x in self.src_dir.glob("tb/*.sv")]
-        r.tb_srcs += [vivado.vivado_dir() / "data/verilog/src/glbl.v"]
         r.xcis = []
 
         return r
@@ -61,7 +71,7 @@ class Sources(Block):
             'srcs_rtl': '.srcs_rtl'
         }, always_rebuild=True, hidden=True)
     def srcs_asic(self, cwd, srcs_rtl):
-        """RTL + verification sources for ASIC synthesis"""
+        """RTL sources for ASIC synthesis"""
         r = Result()
 
         design_srcs_pkg = list(srcs_rtl.design_srcs_pkg)

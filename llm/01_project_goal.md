@@ -75,12 +75,12 @@ Verify against the real tree; this is the convention new work should follow.
 src/
 ├── rtl/<macro_or_block>/     # Shared (FPGA + ASIC) RTL, one directory per module/macro
 ├── asic/                     # ASIC-implementation-only sources; config.py (floorplan, padring,
-│                             #   clock, macro placements), IO and PDN scripts
+│   │                         #   clock, macro placements), IO and PDN scripts
+│   └── macros/<macro>/       # Per-macro config.py (+ pin order, PDN scripts) for the macro blocks
 ├── fpga/                     # FPGA-implementation-only sources/config (rtl, xdc, pincheck, ip)
 ├── ams/<macro>/              # ORDeC sources (.ord / .py) per analog macro incl. testbenches
-├── macros/<macro>/           # Per-macro sources and config.py for the macro blocks
 ├── chip/                     # AMS toplevel (ORDeC), floorplan, padring, constraints
-├── tb/                       # System / module / mixed-signal testbenches
+├── tb/                       # System / module (incl. macro) / mixed-signal testbenches
 └── common/                   # Shared helpers (waveform setups, ...)
 ```
 

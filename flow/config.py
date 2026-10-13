@@ -94,15 +94,6 @@ class AsicConfig:
 
 
 @dataclass
-class Testbench:
-    """Self-checking testbench: passes by finishing, fails via ``$fatal``/``$error``."""
-    top: str
-    """Testbench top module."""
-    srcs: list[Path]
-    """Testbench sources (the design under test is added by the flow)."""
-
-
-@dataclass
 class DigitalMacroConfig:
     """Configuration of a digital macro, hardened by a DigitalMacro block."""
     top: str
@@ -121,8 +112,6 @@ class DigitalMacroConfig:
     """PDN script; required if sub-macros need PDN commands (appended by the flow)."""
     macros: list[MacroPlacement] = field(default_factory=list)
     """Hard macros placed inside this macro (e.g. PDK SRAMs)."""
-    testbench: Testbench | None = None
-    """Testbench for RTL and gate-level simulation of this macro."""
     librelane: dict = field(default_factory=dict)
     """Raw LibreLane config overrides, applied last. Backend-specific escape hatch."""
 

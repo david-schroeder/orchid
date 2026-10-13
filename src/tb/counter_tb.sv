@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SHL-2.1
 // SPDX-FileCopyrightText: David Schröder 2026
 
-// Self-checking testbench of the counter macro (RTL and gate-level).
+// Self-checking module testbench of the counter.
 
 module counter_tb;
 

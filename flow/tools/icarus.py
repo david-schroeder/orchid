@@ -9,13 +9,15 @@ import subprocess
 from pathlib import Path
 
 
-def simulate(srcs: list, top: str, cwd: Path, defines: dict = {}, include_dirs: list = []):
-    """Compile srcs and run top in cwd; raise CalledProcessError if the simulation fails."""
+def simulate(srcs: list, tops: list[str], cwd: Path, defines: dict = {}, include_dirs: list = []):
+    """Compile srcs and run the top modules in cwd; raise CalledProcessError if the simulation fails."""
     for tool in ("iverilog", "vvp"):
         if shutil.which(tool) is None:
             raise RuntimeError(f"{tool} not found on PATH (Icarus Verilog required).")
 
-    cmd = ["iverilog", "-g2012", "-o", "sim.vvp", "-s", top]
+    cmd = ["iverilog", "-g2012", "-o", "sim.vvp"]
+    for t in tops:
+        cmd += ["-s", t]
     cmd += [f"-D{k}={v}" for k, v in defines.items()]
     cmd += [f"-I{d}" for d in include_dirs]
     cmd += [str(x) for x in srcs]

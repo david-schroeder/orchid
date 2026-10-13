@@ -5,8 +5,9 @@ from pydesignflow import Block, task, Result
 
 from . import config
 from .macro import MacroProduct
+from .testbench import SimView
 from .pdk import Pdk
-from .tools import slang, verible, icarus, librelane, lef
+from .tools import slang, verible, librelane, lef
 
 import re
 import shutil
@@ -17,7 +18,7 @@ class DigitalMacro(Block):
     """
     Digital macro: RTL hardened into a macro product (LEF/GDS/netlists/LIB/SDF/SPEF).
 
-    One instance per macro; configured by src/macros/<name>/config.py.
+    One instance per macro; configured by src/asic/macros/<name>/config.py.
     """
 
     def __init__(self, name: str, pdk: Pdk, dependency_map={}):
@@ -26,7 +27,7 @@ class DigitalMacro(Block):
         self.pdk = pdk
 
     def setup(self):
-        self.config_file = self.flow.base_dir / "src/macros" / self.name / "config.py"
+        self.config_file = self.flow.base_dir / "src/asic/macros" / self.name / "config.py"
 
     def pdk_defines(self) -> dict:
         """PDK defines (for cell models) as dict."""
@@ -36,9 +37,23 @@ class DigitalMacro(Block):
             defines[k] = v or 1
         return defines
 
+    def sim_view(self, c: config.DigitalMacroConfig, srcs: list, sdf: dict = {}) -> Result:
+        """Result holding a SimView of srcs plus the models of the hard macros inside."""
+        models = []
+        for cell in dict.fromkeys(p.cell for p in c.macros):
+            models += self.pdk.macro(cell).sim_models()
+        r = Result()
+        r.view = config.to_data(SimView(
+            srcs=[*models, *srcs],
+            defines=self.pdk_defines() | c.defines,
+            include_dirs=c.include_dirs,
+            sdf=sdf,
+        ), keep_paths=True)
+        return r
+
     @task(always_rebuild=True, hidden=True)
     def cfg(self, cwd):
-        """Macro config (src/macros/<name>/config.py)"""
+        """Macro config (src/asic/macros/<name>/config.py)"""
         r = Result()
         r.config = config.to_data(config.load(self.config_file, config.DigitalMacroConfig))
         return r
@@ -65,7 +80,7 @@ class DigitalMacro(Block):
 
     @task(requires={'cfg': '.cfg'}, hidden=True)
     def gen_macro_cfg(self, cwd, cfg):
-        """Collect views, PDN configuration and models of hard macros inside this macro"""
+        """Collect views and PDN configuration of hard macros inside this macro"""
         r = Result()
         placements = config.from_data(config.DigitalMacroConfig, cfg.config).macros
         hm = librelane.hard_macro_config(self.pdk, placements)
@@ -77,27 +92,13 @@ class DigitalMacro(Block):
         r.pdn_connections = hm["pdn_connections"]
         r.pdn_script_ext = pdn_script_ext
         r.librelane_config = hm["config"]
-        r.sim_models = []
-        for cell in dict.fromkeys(p.cell for p in placements):
-            r.sim_models += self.pdk.macro(cell).sim_models()
         return r
 
-    def simulate(self, cwd, c: config.DigitalMacroConfig, design_srcs: list, sim_models: list):
-        """Run the configured testbench against design_srcs."""
-        if c.testbench is None:
-            raise ValueError(f"{self.config_file}: no testbench configured.")
-        icarus.simulate(
-            [*sim_models, *design_srcs, *c.testbench.srcs],
-            c.testbench.top, cwd,
-            defines=self.pdk_defines() | c.defines,
-            include_dirs=c.include_dirs,
-        )
-
-    @task(requires={'cfg': '.cfg', 'macros': '.gen_macro_cfg'})
-    def sim_rtl(self, cwd, cfg, macros):
-        """RTL simulation of the macro testbench (Icarus Verilog)"""
+    @task(requires={'cfg': '.cfg'}, always_rebuild=True, hidden=True)
+    def view_rtl(self, cwd, cfg):
+        """Simulation view: macro RTL"""
         c = config.from_data(config.DigitalMacroConfig, cfg.config)
-        self.simulate(cwd, c, c.srcs, macros.sim_models)
+        return self.sim_view(c, c.srcs)
 
     @task(requires={'cfg': '.cfg', 'elaborate': '.elaborate', 'macros': '.gen_macro_cfg'}, hidden=True)
     def gen_librelane_config(self, cwd, cfg, elaborate, macros):
@@ -180,12 +181,20 @@ class DigitalMacro(Block):
         r.product = config.to_data(product, keep_paths=True)
         return r
 
-    @task(requires={'cfg': '.cfg', 'macros': '.gen_macro_cfg', 'export': '.export'})
-    def sim_gl(self, cwd, cfg, macros, export):
-        """Gate-level simulation of the macro testbench against the hardened netlist (Icarus Verilog)"""
+    @task(requires={'cfg': '.cfg', 'export': '.export'}, always_rebuild=True, hidden=True)
+    def view_gl(self, cwd, cfg, export):
+        """Simulation view: hardened netlist with standard cell models"""
         c = config.from_data(config.DigitalMacroConfig, cfg.config)
         product = config.from_data(MacroProduct, export.product)
-        self.simulate(cwd, c, product.nl, [*self.pdk.sim_models(cwd), *macros.sim_models])
+        return self.sim_view(c, [*self.pdk.sim_models(cwd), *product.nl])
+
+    @task(requires={'cfg': '.cfg', 'export': '.export'}, always_rebuild=True, hidden=True)
+    def view_sdf(self, cwd, cfg, export):
+        """Simulation view: hardened netlist with standard cell models and SDF per corner"""
+        c = config.from_data(config.DigitalMacroConfig, cfg.config)
+        product = config.from_data(MacroProduct, export.product)
+        sdf = {corner: files[0] for corner, files in product.sdf.items()}
+        return self.sim_view(c, [*self.pdk.sim_models(cwd), *product.nl], sdf)
 
     @task(requires={'config': '.gen_librelane_config', 'harden': '.harden'})
     def view(self, cwd, config, harden):

@@ -14,7 +14,7 @@
 | Yosys, OpenROAD, Magic, Netgen, KLayout | Underlying digital synthesis/PnR/signoff tools |
 | NGSpice | Analog simulation (via ORDeC) |
 | Verible | Lint |
-| Icarus Verilog (further open simulators ❓) | ASIC RTL/netlist simulation (macro testbenches, gate-level with PDK cell models) |
+| Icarus Verilog (further open simulators ❓) | ASIC RTL/netlist simulation (`Testbench` blocks, gate-level with PDK cell models) |
 | Vivado, QuestaSim | Optional: FPGA prototyping and simulation |
 | IHP-Open-PDK `ihp-sg13g2` | PDK |
 
@@ -40,18 +40,21 @@ frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with
   - Lists/dicts received from other tasks' `Result`s are copied before mutation.
 - **`src/`**: example/template content only; minimal and generic.
 - **Design config**: Python modules named `config.py`, one per implementation directory
-  (`src/asic/config.py`; per digital/analog macro `src/macros/<name>/config.py`). Each
+  (`src/asic/config.py`; per digital/analog macro `src/asic/macros/<name>/config.py`). Each
   defines a `config` object built from the dataclasses in `flow/config.py` (plain data,
   no flow logic). A hidden `always_rebuild` task loads it and passes it on as JSON
   (`config.to_data`/`from_data`; `None` fields are omitted since `Result`s cannot hold
   `None`). Tool-specific settings get an explicit escape hatch (e.g. a raw `librelane`
   override dict), not first-class fields.
+- **Testbenches**: sources in `src/tb/`; declared as `Testbench` blocks in
+  `flow/__init__.py` with minimal arguments (no config file). Keep configuration data
+  minimal and avoid boilerplate.
 - **PDK**: one `flow.pdk.Pdk` descriptor instance, created in `flow/__init__.py` and passed
   to block constructors. Hard macros (PDK SRAMs, later digital/analog macros) implement
   `flow.macro.HardMacro`. Ownership of tool settings: PDK-inherent ones live in the PDK
   plugin or macro provider, tool workarounds in the block, design choices in the config.
 - **Naming**: block names lowercase snake_case; macro blocks are `macro_<name>`, `<name>`
-  being the macro's directory `src/macros/<name>/`; the hardened cell is named after the
+  being the macro's directory `src/asic/macros/<name>/`; the hardened cell is named after the
   macro's top module.
 - **Docs**: describe target and intent only — never current state. Remove roadmap items
   when done.
