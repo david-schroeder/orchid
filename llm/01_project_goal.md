@@ -77,7 +77,7 @@ src/
 ├── asic/                     # ASIC-implementation-only sources, IO pin order and PDN scripts
 │   └── macros/<macro>/       # Per-macro pin order and PDN scripts for the macro blocks
 ├── fpga/                     # FPGA-implementation-only sources/config (rtl, xdc, pincheck, ip)
-├── ams/<macro>/              # ORDeC sources (.ord / .py) per analog macro incl. testbenches
+├── ams/<macro>/              # ORDeC sources (.ord / .py) and behavioral model per analog macro
 ├── chip/                     # AMS toplevel (ORDeC), floorplan, padring, constraints
 ├── tb/                       # System / module (incl. macro) / mixed-signal testbenches
 └── common/                   # Shared helpers (waveform setups, ...)

@@ -14,6 +14,7 @@ Long-form project documentation lives in `llm/` — **read it before non-trivial
 | `llm/02_flow_architecture.md` | Target flow blocks, tasks, dependencies |
 | `llm/03_roadmap.md` | Ordered plan toward the target architecture |
 | `llm/04_conventions_and_notes.md` | Tooling, environment, conventions, open questions |
+| `llm/05_phase3_ordec_plan.md` | Phase 3 plan: ORDeC integration, `AnalogMacro`, AMS demo |
 
 ## The docs describe the target, not the present
 

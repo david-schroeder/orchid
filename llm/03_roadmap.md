@@ -10,13 +10,14 @@ big-bang rewrite.
 
 ## Phase 3 — ORDeC integration and `AnalogMacro` block
 
-- Add a tiny real analog example macro in ORD/Python under `src/analog/`.
-- Tool wrappers/blocks for ORDeC views: netlist export, NGSpice sims, layout generation,
-  GDS export, KLayout DRC and LVS (requires `ORDEC_PDK_IHP_SG13G2`).
-- `AnalogMacro` tasks per `02`; reuse the macro product schema.
-- Define how analog macros expose a digital-visible model (Verilog / real-number model,
-  liberty abstract).
-- Multiple instantiation via config.
+Detailed plan with decisions and sub-phases: `05_phase3_ordec_plan.md`.
+
+- ORDeC as an external tool (subprocess worker) with PDK hooks; ORD sources under `src/ams/`,
+  ORD testbenches under `src/tb/`.
+- `AnalogMacro` (check and export one ORDeC cell) and `AnalogTestbench` blocks; analog
+  hierarchy expressed in ORDeC only.
+- LEF abstract and `MacroProduct` export for analog macros; digital-visible behavioral models.
+- Demo: 2-bit flash ADCs + stdcell adder + 3-bit R-2R DAC composed by an ORDeC parent macro.
 
 ## Phase 4 — `ChipTop` (ORDeC analog toplevel)
 

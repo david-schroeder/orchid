@@ -87,22 +87,35 @@ built from fine-grained blocks (synth, floorplan, place, cts, route, fill, signo
 
 ## AnalogMacro — generic, multiply instantiable, ORDeC-based
 
-An ORDeC `Cell` (ORD or Python) with `@viewgen` views: `symbol`, `schematic`, `layout`,
-plus testbench cells.
+An `AnalogMacro` checks and exports one ORDeC `Cell` (ORD or Python, with `symbol`,
+`schematic` and `layout` viewgens) as a macro product. Sources live in `src/ams/<name>/`
+(import root `src/`, module `ams.<name>.<name>`).
+
+**Hierarchy lives in ORDeC.** A parent cell imports and instantiates its sub-cells, including
+standard-cell logic laid out by `ordec.layout.pnr`; ORDeC's hierarchical netlisting,
+simulation, DRC and LVS cover the whole tree. The flow does not model analog hierarchy:
+declaring a sub-cell as its own `AnalogMacro` only adds unit-level signoff and an exported
+product. Foreign macros (LibreLane digital macros, external IP) enter an ORDeC hierarchy
+through an `ExtLibrary` built from their macro product.
+
+ORDeC is treated as an external tool: each task runs a worker in a subprocess (wrapper in
+`flow/tools/`), with the PDK environment derived from the `Pdk` descriptor.
 
 | Task | Description | Tooling |
 |------|-------------|---------|
-| `elaborate` | Build views, schematic checks | ORDeC |
-| `sim_<tb>` | SPICE sims: DC/AC/tran/noise, corners, MC where supported | ORDeC netlister + NGSpice |
-| `netlist` | Hierarchical SPICE netlist export | ORDeC netlister |
-| `layout` | Layout generation/assembly (PCells, SRouter, constraints, `ordec.layout.pnr`) | ORDeC |
-| `gds_export` | GDS (and LEF abstract) export | ORDeC |
-| `drc` | DRC | KLayout (ORDeC integration) |
-| `lvs` | Layout-vs-schematic | KLayout LVS (ORDeC) / Netgen |
-| `pex` | Parasitic extraction (optional) | KLayout/Magic |
-| `sim_post_layout` | SPICE with parasitics | NGSpice |
-| `abstract` | LEF + liberty/behavioral model for chip-level integration | ORDeC + scripts |
-| `export` | Macro product (same schema as digital) | |
+| `elaborate` | Build symbol/schematic, checks | ORDeC |
+| `netlist` | Hierarchical SPICE netlist | ORDeC netlister |
+| `layout` | Layout generation/assembly (PCells, SRouter, constraints, `ordec.layout.pnr`), GDS | ORDeC |
+| `drc` | DRC incl. macro layer limit | KLayout (ORDeC integration) |
+| `lvs` | Layout-vs-schematic | KLayout LVS (ORDeC) |
+| `pex`, `sim_post_layout` | Parasitic extraction and SPICE with parasitics (later) | KLayout/Magic, NGSpice |
+| `abstract` | LEF abstract (size, pins, obstructions); liberty abstract when STA needs it | flow/tools |
+| `export` | Macro product (same schema as digital), only after DRC/LVS pass | |
+| `view_rtl` | Behavioral model as `SimView` | |
+| `view`, `ui` | KLayout GDS view, ORDeC web UI | |
+
+Exported names: the macro's top cell is named after the macro, ORDeC-authored sub-cells are
+prefixed with it, library cells keep their names, so products merge without collisions.
 
 The shared `export` interface lets `ChipTop` treat digital and analog macros uniformly
 (LEF/GDS/netlist/pins); analog macros additionally supply a SPICE netlist and behavioral
@@ -155,6 +168,10 @@ A simulation is *testbench* × *design view* × *simulator*; the three are indep
   PDK cell models are the same for gate-level and SDF views and work in every simulator;
   simulator-specific workarounds (e.g. driving timing-check delayed nets for Icarus) are
   guarded by the simulator's predefined macro, never applied unconditionally.
+- **Analog testbenches** are ORDeC cells in `src/tb/` (`<name>_tb.ord`) with `sim_*` and
+  `report*` viewgens; reports self-check with `PassFail` elements. An `AnalogTestbench`
+  block runs all reports (NGSpice via ORDeC) and fails on a failing or missing check; the DUT
+  is bound by the testbench's ORD import.
 - **Testbenches**: all testbench sources live in `src/tb/`. A `Testbench` block binds one
   testbench to one design block, wired as `dut` in its `dependency_map`
   (`Testbench(srcs, top, sdf_scope, dependency_map)`, declared in `flow/__init__.py`;
