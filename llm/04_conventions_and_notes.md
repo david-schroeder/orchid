@@ -39,12 +39,13 @@ frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with
     path runs) without proprietary tools.
   - Lists/dicts received from other tasks' `Result`s are copied before mutation.
 - **`src/`**: example/template content only; minimal and generic.
-- **Design config**: Python modules named `config.py`, one per implementation directory
-  (`src/asic/config.py`; per digital/analog macro `src/asic/macros/<name>/config.py`). Each
-  defines a `config` object built from the dataclasses in `flow/config.py` (plain data,
-  no flow logic). A hidden `always_rebuild` task loads it and passes it on as JSON
-  (`config.to_data`/`from_data`; `None` fields are omitted since `Result`s cannot hold
-  `None`). Tool-specific settings get an explicit escape hatch (e.g. a raw `librelane`
+- **Design config**: no config files under `src/` and no per-block config classes. Each
+  block takes its config as keyword arguments in `flow/__init__.py`, with defaults wherever
+  sensible; structured values (floorplan, clock, padring, macro placements) use the
+  dataclasses in `flow/config.py`. Paths are relative to `src/` and resolved in `setup()`;
+  source lists are glob patterns expanded inside tasks. Data passed between tasks goes
+  through `config.to_data`/`from_data` (`None` fields are omitted since `Result`s cannot
+  hold `None`). Tool-specific settings get an explicit escape hatch (e.g. a raw `librelane`
   override dict), not first-class fields.
 - **Testbenches**: sources in `src/tb/`; declared as `Testbench` blocks in
   `flow/__init__.py` with minimal arguments (no config file). Keep configuration data

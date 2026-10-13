@@ -4,6 +4,7 @@
 from pydesignflow import Block, task, Result
 
 from . import config
+from .config import Floorplan, Clock, PowerNets, MacroPlacement
 from .macro import MacroProduct
 from .testbench import SimView
 from .pdk import Pdk
@@ -18,16 +19,53 @@ class DigitalMacro(Block):
     """
     Digital macro: RTL hardened into a macro product (LEF/GDS/netlists/LIB/SDF/SPEF).
 
-    One instance per macro; configured by src/asic/macros/<name>/config.py.
+    One instance per macro.
     """
 
-    def __init__(self, name: str, pdk: Pdk, dependency_map={}):
+    def __init__(self, pdk: Pdk, *, top: str, srcs: list[str], floorplan: Floorplan, clock: Clock,
+                 power: PowerNets = None, defines: dict = {}, include_dirs: list[str] = [],
+                 io_pin_order: str = None, pdn_script: str = None,
+                 macros: list[MacroPlacement] = [], librelane: dict = {}, dependency_map={}):
+        """
+        Args:
+            top: Top module name; also the name of the hardened macro cell.
+            srcs: RTL source glob patterns relative to src/, in compilation order (packages first).
+            floorplan: Die size and core margin.
+            clock: Primary clock.
+            power: Core supply nets (default: VDD/VSS).
+            defines: Verilog defines (name -> value).
+            include_dirs: Include directories relative to src/.
+            io_pin_order: Pin order file for the I/O placer, relative to src/.
+            pdn_script: PDN script relative to src/; required if sub-macros need PDN commands
+                (appended by the flow).
+            macros: Hard macros placed inside this macro (e.g. PDK SRAMs).
+            librelane: Raw LibreLane config overrides, applied last (backend escape hatch).
+        """
         super().__init__(dependency_map)
-        self.name = name
         self.pdk = pdk
+        self.top = top
+        self.srcs = srcs
+        self.floorplan = floorplan
+        self.clock = clock
+        self.power = power or PowerNets()
+        self.defines = defines
+        self.include_dirs = include_dirs
+        self.io_pin_order = io_pin_order
+        self.pdn_script = pdn_script
+        self.macros = macros
+        self.librelane = librelane
 
     def setup(self):
-        self.config_file = self.flow.base_dir / "src/asic/macros" / self.name / "config.py"
+        self.src_dir = self.flow.base_dir / "src"
+        self.include_dirs = [self.src_dir / d for d in self.include_dirs]
+        if self.io_pin_order is not None:
+            self.io_pin_order = self.src_dir / self.io_pin_order
+        if self.pdn_script is not None:
+            self.pdn_script = self.src_dir / self.pdn_script
+
+    def rtl_srcs(self) -> list[Path]:
+        """Expand the source patterns in order (sorted per pattern, no duplicates)."""
+        return config.expand(self.srcs, self.src_dir)
 
     def pdk_defines(self) -> dict:
         """PDK defines (for cell models) as dict."""
@@ -37,53 +75,45 @@ class DigitalMacro(Block):
             defines[k] = v or 1
         return defines
 
-    def sim_view(self, c: config.DigitalMacroConfig, srcs: list, sdf: dict = {}) -> Result:
+    def sim_view(self, srcs: list, sdf: dict = {}) -> Result:
         """Result holding a SimView of srcs plus the models of the hard macros inside."""
         models = []
-        for cell in dict.fromkeys(p.cell for p in c.macros):
+        for cell in dict.fromkeys(p.cell for p in self.macros):
             models += self.pdk.macro(cell).sim_models()
         r = Result()
         r.view = config.to_data(SimView(
             srcs=[*models, *srcs],
-            defines=self.pdk_defines() | c.defines,
-            include_dirs=c.include_dirs,
+            defines=self.pdk_defines() | self.defines,
+            include_dirs=self.include_dirs,
             sdf=sdf,
         ), keep_paths=True)
         return r
 
-    @task(always_rebuild=True, hidden=True)
-    def cfg(self, cwd):
-        """Macro config (src/asic/macros/<name>/config.py)"""
-        r = Result()
-        r.config = config.to_data(config.load(self.config_file, config.DigitalMacroConfig))
-        return r
-
-    @task(requires={'cfg': '.cfg'}, hidden=True)
-    def elaborate(self, cwd, cfg):
+    @task(hidden=True)
+    def elaborate(self, cwd):
         """Check macro sources with slang (with and without power pins)"""
         r = Result()
-        c = config.from_data(config.DigitalMacroConfig, cfg.config)
+        srcs = self.rtl_srcs()
 
         # Hard macros are blackboxes resolved later by Yosys
-        cmdargs = ["--ignore-unknown-modules"] if c.macros else []
-        for defines in (c.defines, c.defines | {librelane.POWER_DEFINE: 1}):
-            slang.elaborate(c.srcs, c.top, defines, c.include_dirs, cmdargs)
+        cmdargs = ["--ignore-unknown-modules"] if self.macros else []
+        for defines in (self.defines, self.defines | {librelane.POWER_DEFINE: 1}):
+            slang.elaborate(srcs, self.top, defines, self.include_dirs, cmdargs)
         return r
 
-    @task(requires={'cfg': '.cfg'})
-    def lint(self, cwd, cfg):
+    @task()
+    def lint(self, cwd):
         """Run static code quality assessment"""
-        c = config.from_data(config.DigitalMacroConfig, cfg.config)
-        cmdargs = ["--ignore-unknown-modules"] if c.macros else []
-        slang.lint(c.srcs, c.defines, c.include_dirs, cmdargs)
-        verible.lint(c.srcs, cwd)
+        srcs = self.rtl_srcs()
+        cmdargs = ["--ignore-unknown-modules"] if self.macros else []
+        slang.lint(srcs, self.defines, self.include_dirs, cmdargs)
+        verible.lint(srcs, cwd)
 
-    @task(requires={'cfg': '.cfg'}, hidden=True)
-    def gen_macro_cfg(self, cwd, cfg):
+    @task(hidden=True)
+    def gen_macro_cfg(self, cwd):
         """Collect views and PDN configuration of hard macros inside this macro"""
         r = Result()
-        placements = config.from_data(config.DigitalMacroConfig, cfg.config).macros
-        hm = librelane.hard_macro_config(self.pdk, placements)
+        hm = librelane.hard_macro_config(self.pdk, self.macros)
 
         pdn_script_ext: Path = cwd / "pdn_macros.tcl"
         pdn_script_ext.write_text(hm["pdn_script"])
@@ -94,33 +124,31 @@ class DigitalMacro(Block):
         r.librelane_config = hm["config"]
         return r
 
-    @task(requires={'cfg': '.cfg'}, always_rebuild=True, hidden=True)
-    def view_rtl(self, cwd, cfg):
+    @task(always_rebuild=True, hidden=True)
+    def view_rtl(self, cwd):
         """Simulation view: macro RTL"""
-        c = config.from_data(config.DigitalMacroConfig, cfg.config)
-        return self.sim_view(c, c.srcs)
+        return self.sim_view(self.rtl_srcs())
 
-    @task(requires={'cfg': '.cfg', 'elaborate': '.elaborate', 'macros': '.gen_macro_cfg'}, hidden=True)
-    def gen_librelane_config(self, cwd, cfg, elaborate, macros):
+    @task(requires={'elaborate': '.elaborate', 'macros': '.gen_macro_cfg'}, hidden=True)
+    def gen_librelane_config(self, cwd, elaborate, macros):
         """Generate LibreLane config for hardening the macro"""
         r = Result()
-        c = config.from_data(config.DigitalMacroConfig, cfg.config)
 
         ll = librelane.design_config(
-            self.pdk, c.top, c.clock, c.power,
-            c.srcs, c.defines, c.include_dirs, c.floorplan
+            self.pdk, self.top, self.clock, self.power,
+            self.rtl_srcs(), self.defines, self.include_dirs, self.floorplan
         )
         ll |= librelane.macro_mode_config(self.pdk)
         ll = librelane.add_hard_macros(
             ll, macros.macros, macros.pdn_connections, Path(macros.pdn_script_ext).read_text(),
-            macros.librelane_config, c.pdn_script, cwd
+            macros.librelane_config, self.pdn_script, cwd
         )
-        if c.io_pin_order is not None:
-            ll["IO_PIN_ORDER_CFG"] = str(c.io_pin_order)
+        if self.io_pin_order is not None:
+            ll["IO_PIN_ORDER_CFG"] = str(self.io_pin_order)
             ll["ERRORS_ON_UNMATCHED_IO"] = "both" # every macro pin placed deliberately, no stale entries
 
         # Design-specific raw overrides
-        ll |= c.librelane
+        ll |= self.librelane
 
         r.config = librelane.write_config(ll, cwd)
         return r
@@ -134,11 +162,10 @@ class DigitalMacro(Block):
         r.run_dir = run_dir
         return r
 
-    @task(requires={'cfg': '.cfg', 'harden': '.harden'})
-    def export(self, cwd, cfg, harden):
+    @task(requires={'harden': '.harden'})
+    def export(self, cwd, harden):
         """Assemble the macro product (views + pin/size info) for toplevel integration"""
         r = Result()
-        c = config.from_data(config.DigitalMacroConfig, cfg.config)
 
         # Copy views out of the backend's run directory: <view>[/<corner>]/<file>
         def copy(path, subdir: Path) -> Path:
@@ -158,7 +185,7 @@ class DigitalMacro(Block):
             }
 
         product = MacroProduct(
-            name=c.top,
+            name=self.top,
             kind="digital",
             pdk=self.pdk.name,
             width=0, height=0, pins=[],
@@ -167,7 +194,7 @@ class DigitalMacro(Block):
             vh=single("vh"),
             nl=single("nl"),
             pnl=single("pnl"),
-            model=list(c.srcs),
+            model=self.rtl_srcs(),
             lib=corners("lib"),
             sdf=corners("sdf"),
             spef=corners("spef"),
@@ -176,25 +203,23 @@ class DigitalMacro(Block):
         )
         if not (product.gds and product.lef):
             raise RuntimeError(f"{self.id}: hardening produced no GDS/LEF.")
-        product.width, product.height, product.pins = lef.read_macro(product.lef[0], c.top)
+        product.width, product.height, product.pins = lef.read_macro(product.lef[0], self.top)
 
         r.product = config.to_data(product, keep_paths=True)
         return r
 
-    @task(requires={'cfg': '.cfg', 'export': '.export'}, always_rebuild=True, hidden=True)
-    def view_gl(self, cwd, cfg, export):
+    @task(requires={'export': '.export'}, always_rebuild=True, hidden=True)
+    def view_gl(self, cwd, export):
         """Simulation view: hardened netlist with standard cell models"""
-        c = config.from_data(config.DigitalMacroConfig, cfg.config)
         product = config.from_data(MacroProduct, export.product)
-        return self.sim_view(c, [*self.pdk.sim_models(cwd), *product.nl])
+        return self.sim_view([*self.pdk.sim_models(cwd), *product.nl])
 
-    @task(requires={'cfg': '.cfg', 'export': '.export'}, always_rebuild=True, hidden=True)
-    def view_sdf(self, cwd, cfg, export):
+    @task(requires={'export': '.export'}, always_rebuild=True, hidden=True)
+    def view_sdf(self, cwd, export):
         """Simulation view: hardened netlist with standard cell models and SDF per corner"""
-        c = config.from_data(config.DigitalMacroConfig, cfg.config)
         product = config.from_data(MacroProduct, export.product)
         sdf = {corner: files[0] for corner, files in product.sdf.items()}
-        return self.sim_view(c, [*self.pdk.sim_models(cwd), *product.nl], sdf)
+        return self.sim_view([*self.pdk.sim_models(cwd), *product.nl], sdf)
 
     @task(requires={'config': '.gen_librelane_config', 'harden': '.harden'})
     def view(self, cwd, config, harden):

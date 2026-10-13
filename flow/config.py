@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: David Schröder 2026
 
-"""Schema for design configuration files under ``src/``.
+"""Design configuration data types and helpers.
 
-Design config files are Python modules defining a ``config`` object built from the
-dataclasses below. The flow loads them in a task and passes them on as plain JSON data
-(``to_data``/``from_data``), so results stay JSON-serializable.
+The dataclasses below are passed to block constructors in ``flow/__init__.py``.
+``to_data``/``from_data`` convert dataclasses to and from plain JSON data, so task
+results stay JSON-serializable.
 """
 
 import dataclasses
-import importlib.util
+import glob
 import types
 import typing
 from dataclasses import dataclass, field
@@ -75,47 +75,6 @@ class MacroPlacement:
     orientation: Orientation = Orientation.NORTH
 
 
-@dataclass
-class AsicConfig:
-    """Configuration of an ASIC (chip) implementation."""
-    top: str
-    """Top-level module name."""
-    floorplan: Floorplan
-    clock: Clock
-    power: PowerNets = field(default_factory=PowerNets)
-    padring: Padring = field(default_factory=Padring)
-    io_pin_order: Path | None = None
-    """Pin order file for the I/O placer."""
-    pdn_script: Path | None = None
-    """PDN script; macro-specific PDN commands are appended by the flow."""
-    macros: list[MacroPlacement] = field(default_factory=list)
-    librelane: dict = field(default_factory=dict)
-    """Raw LibreLane config overrides, applied last. Backend-specific escape hatch."""
-
-
-@dataclass
-class DigitalMacroConfig:
-    """Configuration of a digital macro, hardened by a DigitalMacro block."""
-    top: str
-    """Top module name; also the name of the hardened macro cell."""
-    srcs: list[Path]
-    """RTL sources in compilation order (packages first)."""
-    floorplan: Floorplan
-    clock: Clock
-    power: PowerNets = field(default_factory=PowerNets)
-    defines: dict = field(default_factory=dict)
-    """Verilog defines (name -> value)."""
-    include_dirs: list[Path] = field(default_factory=list)
-    io_pin_order: Path | None = None
-    """Pin order file for the I/O placer."""
-    pdn_script: Path | None = None
-    """PDN script; required if sub-macros need PDN commands (appended by the flow)."""
-    macros: list[MacroPlacement] = field(default_factory=list)
-    """Hard macros placed inside this macro (e.g. PDK SRAMs)."""
-    librelane: dict = field(default_factory=dict)
-    """Raw LibreLane config overrides, applied last. Backend-specific escape hatch."""
-
-
 def to_data(obj, keep_paths: bool = False):
     """Convert a config dataclass into JSON-compatible data (for task Results).
 
@@ -163,12 +122,13 @@ def from_data(cls, data):
     return data
 
 
-def load(path: Path, cls: type, name: str = "config"):
-    """Load design config object `name` of type cls from Python file `path`."""
-    spec = importlib.util.spec_from_file_location(f"design_config_{path.stem}", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    obj = getattr(module, name, None)
-    if not isinstance(obj, cls):
-        raise TypeError(f"{path}: expected '{name}' of type {cls.__name__}, got {type(obj).__name__}")
-    return obj
+def expand(patterns: list, root: Path) -> list[Path]:
+    """Expand glob patterns relative to root in order (sorted per pattern, no duplicates)."""
+    paths = {}
+    for pattern in patterns:
+        matches = sorted(glob.glob(str(pattern), root_dir=root, recursive=True))
+        if not matches:
+            raise FileNotFoundError(f"'{pattern}' matches no file in {root}.")
+        paths |= dict.fromkeys((root / m).resolve() for m in matches)
+    return list(paths)
+

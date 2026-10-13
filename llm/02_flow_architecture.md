@@ -28,13 +28,12 @@ synthesis/netlisting tools per step. A flow task elaborates the same sources wit
 
 ## DigitalMacro — generic, multiply instantiable
 
-One block instance `macro_<name>` per macro, declared explicitly by name in
-`flow/__init__.py` (like all blocks); its config is read from `src/asic/macros/<name>/config.py`.
-The config (`DigitalMacroConfig`) holds: top module (= macro cell name), RTL sources,
-defines/include dirs, clock, floorplan (absolute die size + core margin), power nets, optional
-pin order and PDN script, sub-macros (e.g. PDK SRAMs, as `MacroPlacement`s resolved by the PDK
-plugin), and a raw backend override dict. Macro RTL lives in `src/rtl/<name>/` (shared with the
-FPGA path); macro config in `src/asic/macros/<name>/`.
+One block instance `macro_<name>` per macro, declared explicitly in `flow/__init__.py` (like
+all blocks) with its config as keyword arguments of the constructor: top module (= macro cell
+name), RTL source globs, defines/include dirs, clock, floorplan (absolute die size + core
+margin), power nets, optional pin order and PDN script, sub-macros (e.g. PDK SRAMs, as
+`MacroPlacement`s resolved by the PDK plugin), and a raw backend override dict. Macro RTL lives in `src/rtl/<name>/` (shared with the
+FPGA path); macro-specific files (pin order, PDN script) in `src/asic/macros/<name>/`.
 
 Macro-mode hardening: no padring, no core ring, power grid on the lower PDN layer only with
 its stripes promoted to pins; PDK-specific layer limits (keeping upper layers free for the

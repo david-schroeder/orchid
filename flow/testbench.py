@@ -6,7 +6,6 @@ from pydesignflow import Block, task
 from . import config
 from .tools import icarus, questasim, xsim
 
-import glob
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -64,13 +63,7 @@ class Testbench(Block):
 
     def tb_srcs(self) -> list[Path]:
         """Expand the source patterns in order (sorted per pattern, no duplicates)."""
-        srcs = {}
-        for pattern in self.srcs:
-            matches = sorted(glob.glob(pattern, root_dir=self.tb_dir, recursive=True))
-            if not matches:
-                raise FileNotFoundError(f"{self.id}: '{pattern}' matches no file in {self.tb_dir}.")
-            srcs |= dict.fromkeys((self.tb_dir / m).resolve() for m in matches)
-        return list(srcs)
+        return config.expand(self.srcs, self.tb_dir)
 
     def simulate(self, simulator, cwd, view, libs={}, batch=False):
         """Simulate the testbench against view (once per SDF corner if the view has any)."""

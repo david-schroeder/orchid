@@ -74,9 +74,8 @@ Verify against the real tree; this is the convention new work should follow.
 ```
 src/
 ├── rtl/<macro_or_block>/     # Shared (FPGA + ASIC) RTL, one directory per module/macro
-├── asic/                     # ASIC-implementation-only sources; config.py (floorplan, padring,
-│   │                         #   clock, macro placements), IO and PDN scripts
-│   └── macros/<macro>/       # Per-macro config.py (+ pin order, PDN scripts) for the macro blocks
+├── asic/                     # ASIC-implementation-only sources, IO pin order and PDN scripts
+│   └── macros/<macro>/       # Per-macro pin order and PDN scripts for the macro blocks
 ├── fpga/                     # FPGA-implementation-only sources/config (rtl, xdc, pincheck, ip)
 ├── ams/<macro>/              # ORDeC sources (.ord / .py) per analog macro incl. testbenches
 ├── chip/                     # AMS toplevel (ORDeC), floorplan, padring, constraints
@@ -90,10 +89,11 @@ The exact detail is decided during roadmap phases 2–4.
 
 ```
 flow/
-├── __init__.py       # Builds the global Flow(); registers blocks and wires dependencies
+├── __init__.py       # Builds the global Flow(); registers blocks with their design config
+│                     #   and wires dependencies
 ├── <block>.py        # One module per flow block (sources, digital macro, analog macro,
 │                     #   chip top, FPGA top, testbenches, ...)
-├── config.py         # Design config schema (dataclasses) + load / JSON conversion
+├── config.py         # Design config data types (dataclasses) + glob expansion / JSON conversion
 ├── macro.py          # Macro-provider interface (HardMacro)
 ├── pdk/              # Pdk descriptor base; one plugin package per PDK (macro definitions,
 │                     #   PDN recipes, corners, decks, bundled PDK supplements)

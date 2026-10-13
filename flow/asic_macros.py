@@ -3,7 +3,7 @@
 
 from pydesignflow import Block, task, Result
 
-from . import config
+from .config import MacroPlacement
 from .pdk import Pdk
 from .tools import librelane
 
@@ -15,16 +15,16 @@ class AsicMacros(Block):
     Hard macro instances of an ASIC implementation.
     """
 
-    def __init__(self, pdk: Pdk, dependency_map={}):
+    def __init__(self, pdk: Pdk, placements: list[MacroPlacement], dependency_map={}):
         super().__init__(dependency_map)
         self.pdk = pdk
+        self.placements = placements
 
-    @task(requires={'cfg': 'srcs.cfg_asic'})
-    def gen_macro_cfg(self, cwd, cfg):
+    @task()
+    def gen_macro_cfg(self, cwd):
         """Collect macro views and PDN configuration for placed macros"""
         r = Result()
-        placements = config.from_data(config.AsicConfig, cfg.config).macros
-        hm = librelane.hard_macro_config(self.pdk, placements)
+        hm = librelane.hard_macro_config(self.pdk, self.placements)
 
         pdn_script_ext: Path = cwd / "pdn_macros.tcl"
         pdn_script_ext.write_text(hm["pdn_script"])

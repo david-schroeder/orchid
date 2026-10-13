@@ -86,14 +86,6 @@ class Sources(Block):
         r.include_dirs = list(srcs_rtl.include_dirs)
         return r
 
-    @task(always_rebuild=True, hidden=True)
-    def cfg_asic(self, cwd):
-        """ASIC implementation config (src/asic/config.py)"""
-        r = Result()
-        cfg = config.load(self.asic_dir / "config.py", config.AsicConfig)
-        r.config = config.to_data(cfg)
-        return r
-
     @task(requires={"srcs":".srcs_asic"})
     def lint(self, cwd, srcs):
         """Run static code quality assessment"""
