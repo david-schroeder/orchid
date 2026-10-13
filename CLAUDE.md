@@ -69,8 +69,9 @@ bisecting — **as long as** the upstream repository and the commit history stay
 
 - Run from the repo root with the venv active: `python shortcut.py <block>.<task>`; use
   `--help` to discover tasks.
-- Environment: `PDK_ROOT` and `ORDEC_PDK_IHP_SG13G2` point to the PDK's `ihp-sg13g2`
-  directory; proprietary/heavy tools (Vivado, QuestaSim) must be on `PATH` only for tasks
+- Environment: `PDK_ROOT` points to the PDK's `ihp-sg13g2` directory (flow tasks derive
+  `ORDEC_PDK_IHP_SG13G2` from it; set that only to run ORDeC outside the flow);
+  proprietary/heavy tools (Vivado, QuestaSim) must be on `PATH` only for tasks
   that use them. Don't run heavy or licensed tasks speculatively; prefer static reading and
   lightweight checks (`python -m py_compile`, importing the flow).
 - Tasks are `@task` methods; dependencies via `requires={'arg': 'block.task'}`, wired with

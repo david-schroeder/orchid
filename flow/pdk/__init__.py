@@ -19,6 +19,14 @@ class Pdk(ABC):
     """Environment variable pointing to this PDK's directory (e.g. .../ihp-sg13g2)."""
     verilog_defines: list[str] = []
     """Defines required by the PDK's Verilog cell models."""
+    macro_max_layer: str | None = None
+    """Topmost routing layer inside macros; layers above stay free for the toplevel."""
+    ordec_module: str | None = None
+    """ORDeC PDK module (e.g. ordec.lib.ihp130); None if ORDeC does not support the PDK."""
+    ordec_drc: str | None = None
+    """DRC entry point in ordec_module: f(layout, use_tempdir=False, **options) -> DrcReport."""
+    ordec_lvs: str | None = None
+    """LVS entry point in ordec_module: f(layout, symbol, use_tempdir=False) -> LvsReport."""
 
     def root(self) -> Path:
         """PDK directory."""
@@ -26,6 +34,10 @@ class Pdk(ABC):
         if not value:
             raise RuntimeError(f"${self.root_env} must point to the {self.name} PDK directory.")
         return Path(value).resolve()
+
+    def ordec_env(self) -> dict[str, str]:
+        """Environment variables ORDeC needs for this PDK (derived from root())."""
+        return {}
 
     def librelane_flow_args(self) -> dict:
         """Keyword arguments for constructing a LibreLane flow."""

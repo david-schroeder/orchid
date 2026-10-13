@@ -18,8 +18,9 @@
 | Vivado, QuestaSim | Optional: FPGA prototyping and simulation |
 | IHP-Open-PDK `ihp-sg13g2` | PDK |
 
-Environment: `source .venv/bin/activate`; `PDK_ROOT` and `ORDEC_PDK_IHP_SG13G2` point to the
-`ihp-sg13g2` directory of the PDK checkout. Yosys must be able to load the yosys-slang
+Environment: `source .venv/bin/activate`; `PDK_ROOT` points to the `ihp-sg13g2` directory of
+the PDK checkout. Flow tasks derive ORDeC's `ORDEC_PDK_IHP_SG13G2` from it (`Pdk.ordec_env()`);
+set that variable only to run ORDeC outside the flow. Yosys must be able to load the yosys-slang
 frontend (`yosys -m slang`; built in from Yosys 0.67), since LibreLane runs with `USE_SLANG`.
 `setup_flow` is a user-local, gitignored script that sets PATH/licences and defines the alias `flow="python shortcut.py"`.
 

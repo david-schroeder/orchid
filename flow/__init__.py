@@ -7,6 +7,7 @@ from .fpga_top import FpgaTop
 from .asic_top import AsicTop
 from .asic_macros import AsicMacros
 from .digital_macro import DigitalMacro
+from .analog_macro import AnalogMacro
 from .simlibs_questa import SimlibsQuesta
 from .testbench import Testbench
 from .sources import Sources
@@ -54,6 +55,9 @@ flow['macro_counter'] = DigitalMacro(pdk,
     clock=Clock(port='clk_i', period_ns=10), # 100 MHz
     io_pin_order='asic/macros/counter/iopins.cfg',
 )
+
+# Analog macros (ORDeC cells; module ams.<name>.<name> in src/ams/<name>/)
+flow['macro_dac'] = AnalogMacro(pdk, cell='Dac')
 
 # FPGA
 flow['fpga_top'] = FpgaTop(dependency_map={'srcs':'srcs'})

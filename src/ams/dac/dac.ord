@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: SHL-2.1
+# SPDX-FileCopyrightText: David Schröder 2026
+
+"""
+3-bit R-2R DAC with unbuffered output: vout = vdd * code / 8, code = d[2:0].
+
+Stdcell buffers drive the ladder rail to rail. The ladder is built from one unit
+resistor (2R = two units in series, for matching), large against the buffers' output
+resistance.
+"""
+
+from ordec.core import *
+from ordec.lib.ihp130 import Rhigh
+from ams import stdcells
+
+N = 3       # bits
+R_L = 4u    # unit resistor: Rhigh, about 12 kOhm
+R_W = 500n
+
+Buf = stdcells.cell("buf_1")
+
+
+cell DacDrivers:
+    """One buffer per bit: d[i] -> b[i]."""
+
+    viewgen symbol(self) -> Symbol:
+        inout vdd: .orient=North
+        inout vss: .orient=South
+        path d, b
+        for i in range(N):
+            input d[i]: .orient=West
+            output b[i]: .orient=East
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 8 * N + 2); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        path d, b, buf
+        for i in range(N):
+            port d[i]: .pos=(0, 8 * i + 4); .orient=East
+            port b[i]: .pos=(20, 8 * i + 4); .orient=West
+            Buf buf[i]:
+                .pos = (7, 8 * i + 2)
+                .A -- d[i]; .X -- b[i]
+                .VDD -- vdd; .VSS -- vss
+
+
+cell R2r:
+    """R-2R ladder: input b[i] has weight 2^i / 2^N; the LSB end is terminated by 2R to vss."""
+
+    viewgen symbol(self) -> Symbol:
+        output vout: .orient=East
+        inout vss: .orient=South
+        path b
+        for i in range(N):
+            input b[i]: .orient=West
+
+    viewgen schematic(self) -> Schematic:
+        port vss: .pos=(0, 0); .orient=East
+        port vout: .pos=(10 * N + 6, 18); .orient=West
+
+        # node[i]: ladder node of bit i (node[N-1] = vout); m[i]: middle of its 2R branch.
+        path b, n, m, ra, rb, rs
+        node = []
+        for i in range(N - 1):
+            net n[i]
+            node.append(n[i])
+        node.append(vout)
+
+        # Termination: 2R from node[0] to vss.
+        net mt
+        Rhigh rt0: .pos=(0, 4); .$l=R_L; .$w=R_W; .n -- vss; .p -- mt; .sub -- vss
+        Rhigh rt1: .pos=(0, 10); .$l=R_L; .$w=R_W; .n -- mt; .p -- node[0]; .sub -- vss
+
+        for i in range(N):
+            x = 10 * i + 8
+            port b[i]: .pos=(x + 2, -2); .orient=North
+            net m[i]
+            Rhigh ra[i]: .pos=(x, 4); .$l=R_L; .$w=R_W; .n -- b[i]; .p -- m[i]; .sub -- vss
+            Rhigh rb[i]: .pos=(x, 10); .$l=R_L; .$w=R_W; .n -- m[i]; .p -- node[i]; .sub -- vss
+            if i < N - 1:
+                Rhigh rs[i]:
+                    .pos = (x + 8, 20); .orient = East
+                    .$l = R_L; .$w = R_W
+                    .n -- node[i]; .p -- node[i + 1]; .sub -- vss
+
+
+cell Dac:
+    """3-bit R-2R DAC: vout = vdd * code / 8 (unbuffered)."""
+
+    viewgen symbol(self) -> Symbol:
+        output vout: .orient=East
+        inout vdd: .orient=North
+        inout vss: .orient=South
+        path d
+        for i in range(N):
+            input d[i]: .orient=West
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 20); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        port vout: .pos=(40, 10); .orient=West
+        path d, b
+        for i in range(N):
+            port d[i]: .pos=(0, 4 * i + 6); .orient=East
+            net b[i]
+
+        DacDrivers drv:
+            .pos = (6, 4)
+            .vdd -- vdd; .vss -- vss
+            for i in range(N):
+                .d[i] -- d[i]; .b[i] -- b[i]
+        R2r ladder:
+            .pos = (24, 4)
+            .vout -- vout; .vss -- vss
+            for i in range(N):
+                .b[i] -- b[i]

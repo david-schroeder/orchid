@@ -18,9 +18,17 @@ class IhpSg13g2(Pdk):
 
     name = "ihp-sg13g2"
     verilog_defines = ["FUNCTIONAL"]
+    # Signals up to Metal5; TopMetal1/2 belong to the macro power grids and the toplevel.
+    macro_max_layer = "Metal5"
+    ordec_module = "ordec.lib.ihp130"
+    ordec_drc = "run_drc"
+    ordec_lvs = "run_lvs"
 
     # Not shipped with the PDK; bundled here.
     BONDPAD = "bondpad_70x70_novias"
+
+    def ordec_env(self) -> dict[str, str]:
+        return {"ORDEC_PDK_IHP_SG13G2": str(self.root())}
 
     def macro(self, cell: str) -> HardMacro:
         if cell in SRAM_CELLS:
@@ -47,7 +55,7 @@ class IhpSg13g2(Pdk):
         return {
             # Macro power grid: TopMetal1 stripes only (become the macro's power pins);
             # signals up to Metal5. TopMetal2 stays free for the toplevel power grid.
-            "RT_MAX_LAYER": "Metal5",
+            "RT_MAX_LAYER": self.macro_max_layer,
         }
 
     def librelane_padring_config(self) -> dict:

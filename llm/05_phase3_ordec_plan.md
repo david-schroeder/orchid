@@ -66,6 +66,25 @@ subprocess (wrapper in `flow/tools/`), with:
 
 Views are regenerated per task; this is cheap for macro-sized cells and deterministic.
 
+Worker conventions (verified):
+
+- Run as `python -P ordec_worker.py <request> <reply>`: `-P` keeps the worker's directory
+  (`flow/tools/`, holding the wrapper `ordec.py`) off `sys.path`, where it would shadow the
+  `ordec` package. The worker imports `ordec.importer` before any design module.
+- Request/reply files stay in the task directory, so a failing action can be rerun by hand
+  there. Worker output goes to the task log (PyDesignFlow routes subprocess output per
+  thread); the traceback is in the log and the reply, the raised `OrdecError` is one line.
+- ORD bytecode caches stay in `src/**/__pycache__` (gitignored, shared with the UI, written
+  atomically per process). `PYTHONPYCACHEPREFIX` is not used: it redirects all bytecode,
+  including the standard library.
+- `run_drc`/`run_lvs` with `use_tempdir=False` write to `<cwd>/drc/` (`layout.gds`,
+  `main`/`maximal`/`antenna.lyrdb` + logs) and `<cwd>/lvs/` (`layout.gds`, `schematic.cir`,
+  `extracted.cir`, `out.lvsdb`). On a ~10-cell pnr block, DRC (maximal + antenna) takes
+  ~7 s and LVS ~2 s.
+- The UI runs `ordec -m <module>` with `src/` on `PYTHONPATH`; it needs an ORDeC install
+  with frontend (`webdist.tar`, or a `web/dist` build for editable installs).
+- A `.py` file shadows an `.ord` file of the same name in the same directory.
+
 ### D4 — Testbenches are ORDeC cells; `AnalogTestbench` runs them
 
 Analog testbenches are ORD testbench cells (schematic with sources and loads, `sim_*`
@@ -101,16 +120,31 @@ src/tb/
   module `ams.<name>.<name>`; testbench block `<name>_tb` → module `tb.<name>_tb`, cell
   `CamelCase(<name>_tb)`.
 - Supply nets/pins `vdd`/`vss` (ORDeC/`ihp130.grid` convention); signal ports lowercase.
+- `.ord` and `.py` design files carry SPDX headers (`#` comments; example design content:
+  SHL-2.1).
 - Exported names: the macro's top cell is named `<name>`; ORDeC-authored sub-cells are
   prefixed `<name>__` so that products of different macros never collide when merged
   (phase 4); library cells (stdcells, PDK primitives) keep their names. Implemented with one
-  export `Directory` (subclass) used for both GDS and SPICE, so names stay LVS-consistent.
+  export `Directory` (subclass) used for both GDS and SPICE, so names stay LVS-consistent:
+  a `klayout.LvsDirectory` subclass overriding `name_cell` (top cell → `<name>`;
+  `ExtLibraryCell`s and cells from `ordec.*` modules → default name; others →
+  `<name>__<default name>`). LVS with this naming is clean. `run_lvs` creates its own
+  directory, so using it there requires the upstream change in Open items. PDK PCell
+  structures keep their parameter-derived names (e.g. `rppd_l_2u_w_500n_b_0_ps_180n_m_1`),
+  identical across macros built with the same ORDeC version.
 
 ### D6 — Physical rules for analog macros
 
 - Layers above the PDK's macro limit stay free for the toplevel (same limit as
   `librelane_macro_config`, e.g. up to Metal5 on SG13G2); checked in `drc`.
 - Pins on routing metals with LVS-readable labels (ORDeC's `run_lvs` requires this anyway).
+- Parent layouts land on a pnr block's Metal4 port pads (unnamed shapes) via
+  `stdcells.port(inst, *pin_path)`, which resolves a sub-cell's `LayoutPin` in parent
+  coordinates; supplies are on the block's Metal1 rails (one row) or side-strap pads.
+- Resistor substrate (SG13G2 LVS merges it into one substrate net): every resistor's `sub`
+  goes to the substrate-tap net (`vss`), the cell owning resistors places a `Ptap` on it,
+  and a cell whose substrate net is not a port needs a `sub` port (see ORDeC docs,
+  `ihp130_substrate_lvs`).
 - Signoff runs on the same generator output that is exported (deterministic regeneration);
   the preferred end state is DRC/LVS on exactly the exported files (see Open items).
 - Post-layout extraction/simulation is out of scope (ORDeC has no PEX); a `pex` task is added
@@ -161,13 +195,14 @@ results, `<report>.json` with the report data, plot series as CSV; fail on faili
 ### Tool wrapper and PDK hooks
 
 - `flow/tools/ordec.py`: `run(pdk, request, cwd) -> reply` (subprocess, env, `sys.path`,
-  JSON protocol, error propagation with ORDeC tracebacks), `ui(pdk, module, cwd)`.
-- Worker script (stand-alone, does not import the `flow` package): actions `elaborate`,
-  `netlist`, `layout`, `drc`, `lvs`, `abstract`, `reports`.
+  JSON protocol, error propagation with ORDeC tracebacks), `ui(pdk, module, cwd, path, views)`.
+- Worker script `flow/tools/ordec_worker.py` (stand-alone, does not import the `flow`
+  package): one function per action, registered with `@action`: `elaborate`, `netlist`,
+  `layout`, `drc`, `lvs`, `abstract`, `reports`.
 - `flow/tools/lef.py`: add `write_macro(...)` (LEF abstract writer) next to `read_macro`.
-- `Pdk` additions: ORDeC environment (`ordec_env()`), the ORDeC PDK module name
-  (`ordec.lib.ihp130`), DRC/LVS entry points used by the worker, macro layer limit.
-  IHP specifics in `flow/pdk/ihp_sg13g2/`.
+- `Pdk` hooks: `ordec_env()`, `ordec_module` (`ordec.lib.ihp130`), `ordec_drc`/`ordec_lvs`
+  (entry point names in that module), `macro_max_layer` (also used for LibreLane's
+  `RT_MAX_LAYER`). IHP specifics in `flow/pdk/ihp_sg13g2/`.
 
 ## Demo design
 
@@ -191,7 +226,9 @@ Ports: `vin`, `vrefp`, `vrefn`, `d[1:0]`, `vdd`, `vss`.
 Ports: `d[2:0]`, `vout`, `vdd`, `vss`.
 - `DacDrivers`: 3 stdcell buffers (pnr block) driving the ladder rail to rail.
 - `R2r`: unit R and 2R (= two series units, for matching); R large against the driver output
-  resistance (e.g. ≥10 kΩ unit with Rhigh). `vout = vdd · code / 8`.
+  resistance (e.g. ≥10 kΩ unit with Rhigh). `vout = vdd · code / 8`. With `buf_1` drivers
+  and a 12 kΩ unit (Rhigh 0.5 × 4 µm), the operating point is up to ~2.7 % low (MSB); pick
+  driver strength/unit length so the `dac_tb` tolerance holds.
 
 **`MixSum` (`macro_mixsum`)** — parent.
 Ports: `va`, `vb`, `vout`, `vrefp`, `vrefn`, `vdd`, `vss`.
@@ -215,38 +252,12 @@ Ports: `va`, `vb`, `vout`, `vrefp`, `vrefn`, `vdd`, `vss`.
 
 Each sub-phase ends with the example flow importing and the new tasks running end to end.
 
-### 3.0 — Spikes (verify assumptions, no permanent code)
-
-- ORD import from `src/` as namespace packages (`ams.adc.adc`, `tb.adc_tb`), including
-  cross-module ORD imports and `__pycache__` placement; ORDeC local-mode UI with `-m` and an
-  extra `sys.path` entry.
-- `run_drc`/`run_lvs` of `ordec.lib.ihp130` called from a worker inside a chosen `cwd`
-  (`use_tempdir=False`), report locations, runtime on a pnr block.
-- A `Directory` subclass for the export naming scheme (D5), used for GDS and SPICE, LVS still
-  clean.
-- `place_and_route` block inside an analog parent layout plus `SRouter` connection to its
-  Metal4 port pads, DRC clean.
-- Icarus support for `real` ports in SystemVerilog modules (for 3.7).
-
-Outcome: notes folded into this plan; adjust decisions if a spike fails.
-
-### 3.1 — ORDeC tool integration
-
-- `flow/tools/ordec.py` + worker script (D3), JSON protocol, error reporting.
-- `Pdk` hooks (env, ORDeC module, DRC/LVS entry points, macro layer limit) and IHP
-  implementation.
-- `src/ams/stdcells.py` (shared stdcell `ExtLibrary`, pin rects, grid/routing spec helpers).
-- REUSE entries for any new non-headerable files; `.ord` files carry SPDX headers (`#`
-  comments; example design content: SHL-2.1).
-
-Acceptance: a hidden smoke task (or `elaborate` of a trivial cell) runs through the worker in
-a subprocess with `-j` > 1.
-
 ### 3.2 — `AnalogMacro` core tasks with the DAC
 
-- `flow/analog_macro.py` with `elaborate`, `netlist`, `layout`, `drc`, `lvs`, `view`, `ui`;
-  registered in `flow/__init__.py`.
-- `Dac` design in `src/ams/dac/` (`DacDrivers` pnr block + `R2r`), first real macro.
+- `AnalogMacro` tasks `netlist`, `layout`, `drc`, `lvs`, `view`, `ui` next to `elaborate`,
+  each backed by a worker action.
+- `Dac` layout (`DacDrivers` via `stdcells.pnr`, `R2r` with PCells, `Ptap` and `SRouter`),
+  the first real macro.
 
 Acceptance: `macro_dac.drc` and `macro_dac.lvs` pass; `macro_dac.view` shows the GDS.
 
@@ -289,8 +300,9 @@ compared pairwise), `macro_mixsum.export` pass.
 - Hand-written SystemVerilog behavioral models with `real` analog ports (`adc.sv`, `dac.sv`,
   `mixsum.sv` instantiating the other two); exported as `model`, offered as `view_rtl`.
 - A small Verilog `Testbench` (`mixsum_model_tb`) against `macro_mixsum` with Icarus, checking
-  the same reference as `mixsum_tb` (fallback if Icarus `real` ports fail in 3.0: fixed-point
-  analog ports under a define).
+  the same reference as `mixsum_tb`. Icarus (12) supports `real` ports and parameters through
+  the hierarchy; use `always @*` rather than `always_comb` for `real`-valued locals (Icarus
+  warns about the latter).
 
 Acceptance: `mixsum_model_tb.sim_rtl_icarus` passes.
 
@@ -305,7 +317,8 @@ Acceptance: `mixsum_model_tb.sim_rtl_icarus` passes.
 - **Signoff on exported files**: preferred is a small upstream ORDeC change letting
   `run_drc`/`run_lvs` take a `Directory` and run directory (or file-based entry points), so
   checks run on exactly the exported names/files; until then, rely on deterministic
-  regeneration.
+  regeneration. (Substituting the export `Directory` for `klayout.LvsDirectory` inside
+  `run_lvs` gives a clean LVS, so a `directory` parameter is all `run_lvs` needs.)
 - **Shared stdcell library upstream**: a cached `ihp130` stdcell `ExtLibrary` in ORDeC would
   replace `src/ams/stdcells.py`.
 - **Comparator input range** at 1.2 V decides the reference range of the demo; acceptable to
