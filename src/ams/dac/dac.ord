@@ -129,7 +129,8 @@ cell R2r:
         for i in range(N):
             sr.move(layers.Metal1, rb[i].term_p.center)
             sr.wire_y(y_series)
-            sr.wire_x(rb[i].term_p.cx + (RS_OFS if i < N - 1 else 0))
+            if i < N - 1:
+                sr.wire_x(rb[i].term_p.cx + RS_OFS)
             if i > 0:
                 sr.move(layers.Metal1, (rb[i].term_p.cx, y_series))
                 sr.wire_x(rb[i].term_p.cx - RS_OFS)
