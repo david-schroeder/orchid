@@ -1,0 +1,239 @@
+# SPDX-License-Identifier: SHL-2.1
+# SPDX-FileCopyrightText: David Schröder 2026
+
+"""
+Mixed-signal sum: vout = vdd * (qa + qb) / 8, qa and qb the 2-bit codes of va and vb.
+
+Two flash ADCs digitize va and vb (shared reference vrefn..vrefp), a stdcell adder sums
+the codes, and the 3-bit R-2R DAC converts the sum back.
+"""
+
+from ordec.core import *
+from ordec.lib.ihp130 import SG13G2
+from ordec.layout import SRouter
+from ams import stdcells
+from ams.adc.adc import Adc
+from ams.dac.dac import Dac
+
+N = 2   # bits per operand; the sum has N + 1
+
+Xor = stdcells.cell("xor2_1")
+And = stdcells.cell("and2_1")
+Or = stdcells.cell("or2_1")
+
+
+cell Adder:
+    """s[2:0] = a[1:0] + b[1:0]: half adder (bit 0) and full adder (bit 1)."""
+
+    viewgen symbol(self) -> Symbol:
+        inout vdd: .orient=North
+        inout vss: .orient=South
+        path a, b, s
+        for i in range(N):
+            input a[i]: .orient=West
+            input b[i]: .orient=West
+        for i in range(N + 1):
+            output s[i]: .orient=East
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 46); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        path a, b, s
+        for i in range(N):
+            port a[i]: .pos=(0, 22 * i + 8); .orient=East
+            port b[i]: .pos=(0, 22 * i + 14); .orient=East
+        for i in range(N + 1):
+            port s[i]: .pos=(70, 14 * i + 8); .orient=West
+        net c0, t1, g1, p1
+
+        # Bit 0: s0 = a0 ^ b0, carry c0 = a0 & b0.
+        Xor x0: .pos=(12, 4); .A -- a[0]; .B -- b[0]; .X -- s[0]; .VDD -- vdd; .VSS -- vss
+        And g0: .pos=(12, 14); .A -- a[0]; .B -- b[0]; .X -- c0; .VDD -- vdd; .VSS -- vss
+        # Bit 1: s1 = a1 ^ b1 ^ c0, carry s2 = a1 & b1 | c0 & (a1 ^ b1).
+        Xor x1: .pos=(12, 26); .A -- a[1]; .B -- b[1]; .X -- t1; .VDD -- vdd; .VSS -- vss
+        And a1: .pos=(12, 36); .A -- a[1]; .B -- b[1]; .X -- g1; .VDD -- vdd; .VSS -- vss
+        Xor x2: .pos=(34, 20); .A -- t1; .B -- c0; .X -- s[1]; .VDD -- vdd; .VSS -- vss
+        And a2: .pos=(34, 30); .A -- t1; .B -- c0; .X -- p1; .VDD -- vdd; .VSS -- vss
+        Or o1: .pos=(54, 34); .A -- g1; .B -- p1; .X -- s[2]; .VDD -- vdd; .VSS -- vss
+
+    viewgen layout(self) -> Layout:
+        # One row; operands enter at the bottom (from the ADCs), the sum leaves at the top
+        # (towards the DAC).
+        edges = ({f"a[{i}]": "bottom" for i in range(N)} | {f"b[{i}]": "bottom" for i in range(N)}
+            | {f"s[{i}]": "top" for i in range(N + 1)})
+        stdcells.pnr(self.schematic, ., aspect=0.1, port_edges=edges)
+
+
+cell MixSum:
+    """vout = vdd * (qa + qb) / 8; qa, qb: codes of va, vb on the reference vrefn..vrefp."""
+
+    viewgen symbol(self) -> Symbol:
+        input va: .orient=West
+        input vb: .orient=West
+        inout vrefp: .orient=West
+        inout vrefn: .orient=West
+        output vout: .orient=East
+        inout vdd: .orient=North
+        inout vss: .orient=South
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 52); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        port va: .pos=(0, 14); .orient=East
+        port vb: .pos=(0, 38); .orient=East
+        port vrefp: .pos=(0, 26); .orient=East
+        port vrefn: .pos=(0, 22); .orient=East
+        port vout: .pos=(80, 26); .orient=West
+        path qa, qb, q
+        for i in range(N):
+            net qa[i]
+            net qb[i]
+        for i in range(N + 1):
+            net q[i]
+
+        Adc adc_a:
+            .pos = (10, 6)
+            .vin -- va; .vrefp -- vrefp; .vrefn -- vrefn; .vdd -- vdd; .vss -- vss
+            for i in range(N):
+                .d[i] -- qa[i]
+        Adc adc_b:
+            .pos = (10, 30)
+            .vin -- vb; .vrefp -- vrefp; .vrefn -- vrefn; .vdd -- vdd; .vss -- vss
+            for i in range(N):
+                .d[i] -- qb[i]
+        Adder add:
+            .pos = (36, 18)
+            .vdd -- vdd; .vss -- vss
+            for i in range(N):
+                .a[i] -- qa[i]; .b[i] -- qb[i]
+            for i in range(N + 1):
+                .s[i] -- q[i]
+        Dac dac:
+            .pos = (60, 20)
+            .vdd -- vdd; .vss -- vss; .vout -- vout
+            for i in range(N + 1):
+                .d[i] -- q[i]
+
+    viewgen layout(self) -> Layout:
+        # adc_a (mirrored) below adc_b, so that their ladders (vrefp/vrefn) face each other
+        # across a gap. Right of them: supply straps (Metal2), a routing channel, then the
+        # adder with the DAC above it. Signals run horizontally on Metal3 and vertically
+        # on Metal4 (the pnr blocks' port pads are Metal4). Positions put the lower left
+        # corner of the macro at the origin.
+        .ref_layers = SG13G2().layers
+        layers = .ref_layers
+        sr = SRouter(SG13G2().default_routing_spec)
+        port = stdcells.port
+        GAP = 3000      # between the ADCs
+        PITCH = 800     # channel and line pitch
+
+        Adc adc_a:
+            .orient = FlippedSouth
+            ! .pos == (0, 19540)
+        Adc adc_b:
+            ! .pos == (0, 19540 + GAP)
+        gap_y = adc_a.pos.y + GAP / 2
+
+        # Supply straps right of the ADCs.
+        LayoutRect vss:
+            .layer = layers.Metal2
+            ! .lx == adc_a.vss.ux + 5280
+            ! .width == 400
+            .create_pin(self.symbol.vss)
+        LayoutRect vdd:
+            .layer = layers.Metal2
+            ! .lx == vss.ux + 600
+            ! .width == 400
+            ! .y_extent == vss.y_extent
+            .create_pin(self.symbol.vdd)
+        ch_x = [vdd.ux + 1000 + k * PITCH for k in range(2 * N)]
+
+        Adder add:
+            ! .pos == (ch_x[-1] + 1500, 17360)
+        Dac dac:
+            ! .pos == (add.pos.x, 24600)
+
+        # Rails to the straps (Metal1): the ADCs' from the left, the others' from the
+        # right. The straps span all of them.
+        rails = [(adc_a.vss, vss, True), (adc_b.vss, vss, True), (adc_a.vdd, vdd, True),
+                 (adc_b.vdd, vdd, True), (port(add, "vss"), vss, False),
+                 (port(add, "vdd"), vdd, False), (dac.vss, vss, False), (dac.vdd, vdd, False)]
+        for rail, strap, left in rails:
+            anonymous LayoutRect r:
+                .layer = layers.Metal1
+                ! .y_extent == (rail.cy - 150, rail.cy + 150)
+                if left:
+                    ! .lx == rail.ux - 300
+                    ! .ux == strap.ux
+                else:
+                    ! .lx == strap.lx
+                    ! .ux == rail.lx + 300
+            sr.move(layers.Metal1, (strap.cx, rail.cy))
+            sr.layer(layers.Metal2)
+        ! vss.ly == adc_a.vdd.cy - 400
+        ! vss.uy == adc_b.vdd.cy + 400
+
+        # References: joined across the gap (Metal1), to the left edge on Metal2.
+        for name, y in (("vrefn", gap_y - 500), ("vrefp", gap_y + 500)):
+            a = getattr(adc_a, name)
+            b = getattr(adc_b, name)
+            anonymous LayoutRect bridge:
+                .layer = layers.Metal1
+                ! .x_extent == a.x_extent
+                ! .ly == a.ly
+                ! .uy == b.uy
+            anonymous LayoutRect pin:
+                .layer = layers.Metal2
+                ! .lx == 0
+                ! .cy == y
+                ! .size == (400, 400)
+                .create_pin(getattr(self.symbol, name))
+            sr.move(layers.Metal1, (a.cx, y))
+            sr.layer(layers.Metal2)
+            sr.wire_x(pin.cx)
+        LayoutRect va:
+            .layer = layers.Metal4
+            ! .rect == adc_a.vin.rect
+            .create_pin(self.symbol.va)
+        LayoutRect vb:
+            .layer = layers.Metal4
+            ! .rect == adc_b.vin.rect
+            .create_pin(self.symbol.vb)
+
+        # ADC codes to the adder's bottom-edge pads: from each ADC output pad on Metal4
+        # into the free band between the ADC's encoder and its vss rail, on Metal3 to a
+        # channel column, on Metal4 to a level below the adder, on Metal3 under the pad
+        # and on Metal4 up into it.
+        ya = adc_a.pos.y - 9160     # adc_a: band above its output pads
+        yb = adc_b.pos.y + 9160     # adc_b: band below its output pads
+        lines = []
+        for i in range(N):
+            lines.append((adc_a.d[i], ya + 600 + i * PITCH, port(add, "a", i)))
+            lines.append((adc_b.d[i], yb - 600 - i * PITCH, port(add, "b", i)))
+        y_level = port(add, "a", 0).ly - 600
+        for k, (src, y_band, dst) in enumerate(lines):
+            sr.move(layers.Metal4, src.center)
+            sr.wire_y(y_band)
+            sr.layer(layers.Metal3)
+            sr.wire_x(ch_x[k])
+            sr.layer(layers.Metal4)
+            sr.wire_y(y_level - k * PITCH)
+            sr.layer(layers.Metal3)
+            sr.wire_x(dst.cx)
+            sr.layer(layers.Metal4)
+            sr.wire_y(dst.cy)
+
+        # Sum to the DAC's bottom-edge pads: up from the adder, across, up into the pad.
+        for i in range(N + 1):
+            src = port(add, "s", i)
+            sr.move(layers.Metal4, src.center)
+            sr.wire_y(src.uy + 600 + i * PITCH)
+            sr.layer(layers.Metal3)
+            sr.wire_x(dac.d[i].cx)
+            sr.layer(layers.Metal4)
+            sr.wire_y(dac.d[i].cy)
+
+        LayoutRect vout:
+            .layer = layers.Metal1
+            ! .rect == dac.vout.rect
+            .create_pin(self.symbol.vout)

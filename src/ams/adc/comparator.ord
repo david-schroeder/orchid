@@ -1,0 +1,275 @@
+# SPDX-License-Identifier: SHL-2.1
+# SPDX-FileCopyrightText: David Schröder 2026
+
+"""
+Continuous-time comparator: out = (inp > inn), rail to rail.
+
+5-transistor OTA (NMOS input pair, PMOS mirror load, NMOS tail biased by vbn) followed by
+an inverter.
+"""
+
+from ordec.core import *
+from ordec.lib.ihp130 import SG13G2, Nmos, Pmos, Ptap, Ntap
+
+W_IN = 2u       # input pair
+L_IN = 0.5u
+W_LOAD = 1u     # mirror load
+L_LOAD = 0.5u
+W_TAIL = 1u     # tail; mirrored from Bias (same size)
+L_TAIL = 1u
+W_INV_N = 0.5u  # output inverter
+W_INV_P = 1u
+L_INV = 0.13u
+
+
+cell Comparator:
+    """out = (inp > inn); the tail current is set by vbn (gate of a Bias diode)."""
+
+    viewgen symbol(self) -> Symbol:
+        input inp: .orient=West
+        input inn: .orient=West
+        input vbn: .orient=West
+        output out: .orient=East
+        inout vdd: .orient=North
+        inout vss: .orient=South
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 22); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        port inn: .pos=(0, 10); .orient=East
+        port inp: .pos=(24, 10); .orient=West
+        port vbn: .pos=(0, 4); .orient=East
+        port out: .pos=(36, 12); .orient=West
+        net x, o, tail
+
+        # Diode side (m1, m3) on inn, output side (m2, m4) on inp: o falls when inp > inn.
+        Nmos(w=W_IN, l=L_IN) m1: .pos=(4, 8); .g -- inn; .d -- x; .s -- tail; .b -- vss
+        Nmos(w=W_IN, l=L_IN) m2:
+            .pos = (20, 8); .orient = FlippedNorth
+            .g -- inp; .d -- o; .s -- tail; .b -- vss
+        Pmos(w=W_LOAD, l=L_LOAD) m3:
+            .pos = (4, 15); .orient = FlippedNorth
+            .g -- x; .d -- x; .s -- vdd; .b -- vdd
+        Pmos(w=W_LOAD, l=L_LOAD) m4: .pos=(16, 15); .g -- x; .d -- o; .s -- vdd; .b -- vdd
+        Nmos(w=W_TAIL, l=L_TAIL) m5: .pos=(10, 2); .g -- vbn; .d -- tail; .s -- vss; .b -- vss
+
+        Nmos(w=W_INV_N, l=L_INV) mn: .pos=(28, 6); .g -- o; .d -- out; .s -- vss; .b -- vss
+        Pmos(w=W_INV_P, l=L_INV) mp: .pos=(28, 14); .g -- o; .d -- out; .s -- vdd; .b -- vdd
+
+    viewgen layout(self) -> Layout:
+        # NMOS row: inverter mn, then m2 | m1 sharing the tail diffusion; the tail m5 below.
+        # PMOS row: inverter mp, then m4 | m3 sharing the vdd diffusion. Gate contacts lie
+        # between the rows (m1, m2, inverter, m3/m4 bar), vbn below m5. Supply rails on
+        # Metal1 at the bottom (vss, Ptap) and top (vdd, Ntap); signal pins on Metal2 pads.
+        .ref_layers = SG13G2().layers
+        layers = .ref_layers
+        ROWGAP = 3000   # NMOS activ top to PMOS activ bottom
+        COLGAP = 1200   # inverter activ to the pair's activ
+
+        Nmos(w=W_IN, l=L_IN) m1:
+            ! .pos == (0, 0)
+        Nmos(w=W_IN, l=L_IN) m2:
+            .orient = FlippedNorth
+            ! .sd[0].center == m1.sd[0].center
+        Nmos(w=W_TAIL, l=L_TAIL) m5:
+            ! .sd[1].cx == m1.sd[0].cx
+            ! .poly[0].uy + 1000 == m1.poly[0].ly
+        Pmos(w=W_LOAD, l=L_LOAD) m3:
+            ! .sd[0].cx == m1.sd[0].cx
+            ! .activ.ly == m1.activ.uy + ROWGAP
+        Pmos(w=W_LOAD, l=L_LOAD) m4:
+            .orient = FlippedNorth
+            ! .sd[0].center == m3.sd[0].center
+        Nmos(w=W_INV_N, l=L_INV) mn:
+            .orient = FlippedNorth
+            ! .activ.ux + COLGAP == m2.activ.lx
+            ! .activ.cy == m2.activ.cy
+        Pmos(w=W_INV_P, l=L_INV) mp:
+            .orient = FlippedNorth
+            ! .poly[0].cx == mn.poly[0].cx
+            ! .activ.cy == m4.activ.cy
+        ymid = 0.5 * m2.activ.uy + 0.5 * m4.activ.ly
+
+        # Drains: x (m1, m3, gates of m3/m4), o (m2, m4, inverter gate), out (inverter).
+        LayoutRect x_strip:
+            .layer = layers.Metal1
+            ! .x_extent == m1.sd[1].x_extent
+            ! .ly == m1.sd[1].ly
+            ! .uy == m3.sd[1].uy
+        LayoutRect o_strip:
+            .layer = layers.Metal1
+            ! .x_extent == m2.sd[1].x_extent
+            ! .ly == m2.sd[1].ly
+            ! .uy == m4.sd[1].uy
+        LayoutRect out_strip:
+            .layer = layers.Metal1
+            ! .x_extent == mn.sd[1].x_extent
+            ! .ly == mn.sd[1].ly
+            ! .uy == mp.sd[1].uy
+        LayoutRect tail_strip:
+            .layer = layers.Metal1
+            ! .x_extent == m5.sd[1].x_extent
+            ! .ly == m5.sd[1].ly
+            ! .uy == m1.sd[0].uy
+
+        # Mirror gates: poly bar below the PMOS row, contacted next to x_strip.
+        LayoutRect load_bar:
+            .layer = layers.GatPoly
+            ! .lx == m4.poly[0].lx
+            ! .ux == m3.poly[0].ux
+            ! .uy == m3.poly[0].ly + 50
+            ! .height == 400
+        load_m1 = poly_contact((m3.poly[0].cx, load_bar.cy))
+        LayoutRect load_x:
+            .layer = layers.Metal1
+            ! .y_extent == load_m1.y_extent
+            ! .lx == load_m1.lx
+            ! .ux == x_strip.ux
+
+        # Inverter gate: poly bar between the rows, pad east of it, wired to o_strip.
+        LayoutRect inv_bar:
+            .layer = layers.GatPoly
+            ! .x_extent == mn.poly[0].x_extent
+            ! .ly == mn.poly[0].uy - 50
+            ! .uy == mp.poly[0].ly + 50
+        LayoutRect inv_pad:
+            .layer = layers.GatPoly
+            ! .lx == inv_bar.lx
+            ! .width == 530
+            ! .cy == ymid
+            ! .height == 300
+        inv_m1 = poly_contact((inv_pad.ux - 150, ymid))
+        LayoutRect inv_o:
+            .layer = layers.Metal1
+            ! .y_extent == (ymid - 100, ymid + 100)
+            ! .lx == inv_m1.lx
+            ! .ux == o_strip.ux
+
+        # Supplies.
+        LayoutRect vss:
+            .layer = layers.Metal1
+            ! .lx == mn.activ.lx - 600
+            ! .ux == m1.activ.ux + 600
+            ! .uy == m5.poly[0].ly - 900
+            ! .height == 300
+            .create_pin(self.symbol.vss)
+        LayoutRect vdd:
+            .layer = layers.Metal1
+            ! .x_extent == vss.x_extent
+            ! .ly == m3.poly[0].uy + 900
+            ! .height == 300
+            .create_pin(self.symbol.vdd)
+        Ptap(l=0.7u, w=0.7u) ptap:
+            ! .m1.cy == vss.cy
+            ! .activ.cx == mn.poly[0].cx
+        Ntap(l=0.7u, w=0.7u) ntap:
+            ! .m1.cy == vdd.cy
+            ! .activ.cx == mp.poly[0].cx
+        LayoutRect nwell:
+            .layer = layers.NWell
+            ! .contains(m3.nwell.rect)
+            ! .contains(m4.nwell.rect)
+            ! .contains(mp.nwell.rect)
+            ntap_nwell(ntap, .)
+        for sd in (mn.sd[0], m5.sd[0]):
+            anonymous LayoutRect r:
+                .layer = layers.Metal1
+                ! .x_extent == sd.x_extent
+                ! .ly == vss.cy
+                ! .uy == sd.uy
+        for sd in (m3.sd[0], mp.sd[0]):
+            anonymous LayoutRect r:
+                .layer = layers.Metal1
+                ! .x_extent == sd.x_extent
+                ! .ly == sd.ly
+                ! .uy == vdd.cy
+
+        # Signal pins on Metal2 pads.
+        LayoutRect inp:
+            .layer = layers.Metal2
+            ! .rect == m2_pad(gate_contact(m2.poly[0], up=True)).rect
+            .create_pin(self.symbol.inp)
+        LayoutRect inn:
+            .layer = layers.Metal2
+            ! .rect == m2_pad(gate_contact(m1.poly[0], up=True)).rect
+            .create_pin(self.symbol.inn)
+        LayoutRect vbn:
+            .layer = layers.Metal2
+            ! .rect == m2_pad(gate_contact(m5.poly[0], up=False)).rect
+            .create_pin(self.symbol.vbn)
+        LayoutRect out:
+            .layer = layers.Metal2
+            ! .rect == m2_pad(m1_pad((out_strip.cx, ymid))).rect
+            .create_pin(self.symbol.out)
+
+
+# Layout helpers (for viewgen layout bodies)
+# ------------------------------------------
+
+PAD = 300   # Metal1/GatPoly contact pads
+PAD2 = 400  # Metal2 pads (minimum area)
+
+
+def m1_pad(center):
+    """Metal1 pad at center."""
+    anonymous LayoutRect m1:
+        .layer = SG13G2().layers.Metal1
+        ! .center == center
+        ! .size == (PAD, PAD)
+    return m1
+
+
+def poly_contact(center):
+    """GatPoly-Metal1 contact at center (on existing poly); returns the Metal1 pad."""
+    layers = SG13G2().layers
+    anonymous LayoutRect p:
+        .layer = layers.GatPoly
+        ! .center == center
+        ! .size == (PAD, PAD)
+    anonymous LayoutRect c:
+        .layer = layers.Cont
+        ! .center == center
+        ! .size == (160, 160)
+    return m1_pad(center)
+
+
+def gate_contact(poly, up: bool):
+    """Contact beyond the upper (up) or lower end of a gate; returns the Metal1 pad."""
+    layers = SG13G2().layers
+    anonymous LayoutRect ext:
+        .layer = layers.GatPoly
+        ! .x_extent == poly.x_extent
+        if up:
+            ! .ly == poly.uy - 50
+            ! .uy == poly.uy + 400
+        else:
+            ! .uy == poly.ly + 50
+            ! .ly == poly.ly - 400
+    return poly_contact((poly.cx, poly.uy + 250 if up else poly.ly - 250))
+
+
+def ntap_nwell(ntap, nwell):
+    """Constrain nwell to contain the Ntap with 1 um margin.
+
+    The Ntap draws nBuLay over its own NWell; DRC adds nBuLay 1 um inside wide NWell
+    regions. With the margin, the drawn nBuLay lies inside the generated one instead of
+    forming narrow (NBL.a) slivers with it.
+    """
+    ! nwell.lx <= ntap.nwell.lx - 1000
+    ! nwell.ly <= ntap.nwell.ly - 1000
+    ! nwell.ux >= ntap.nwell.ux + 1000
+    ! nwell.uy >= ntap.nwell.uy + 1000
+
+
+def m2_pad(m1):
+    """Via1 and Metal2 pad on the center of the Metal1 pad m1; returns the Metal2 pad."""
+    layers = SG13G2().layers
+    anonymous LayoutRect v:
+        .layer = layers.Via1
+        ! .center == m1.center
+        ! .size == (190, 190)
+    anonymous LayoutRect m2:
+        .layer = layers.Metal2
+        ! .center == m1.center
+        ! .size == (PAD2, PAD2)
+    return m2

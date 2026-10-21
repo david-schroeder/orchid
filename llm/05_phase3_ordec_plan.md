@@ -142,7 +142,12 @@ src/tb/
 - Pins on routing metals with LVS-readable labels (ORDeC's `run_lvs` requires this anyway).
 - Parent layouts land on a pnr block's Metal4 port pads (unnamed shapes) via
   `stdcells.port(inst, *pin_path)`, which resolves a sub-cell's `LayoutPin` in parent
-  coordinates; supplies are on the block's Metal1 rails (one row) or side-strap pads.
+  coordinates; supplies are on the block's Metal1 rails (one row) or side-strap pads. Routes
+  enter these pads on Metal4 itself: a via stack on a pad collides with the pnr's own vias
+  below it (V3.b/M3.b).
+- An `Ntap`'s NWell gets ≥ 1 µm margin around the tap: the `Ntap` draws nBuLay, and DRC
+  generates nBuLay 1 µm inside wide NWells; without the margin the two form narrow slivers
+  (NBL.a).
 - Resistor substrate (SG13G2 LVS merges it into one substrate net): every resistor's `sub`
   goes to the substrate-tap net (`vss`), the cell owning resistors places a `Ptap` on it,
   and a cell whose substrate net is not a port needs a `sub` port (see ORDeC docs,
@@ -228,17 +233,23 @@ Supply 1.2 V (SG13G2 LV core devices). All macros unclocked.
 
 **`Adc` (`macro_adc`)** — 2-bit continuous-time flash ADC.
 Ports: `vin`, `vrefp`, `vrefn`, `d[1:0]`, `vdd`, `vss`.
-- `Ladder`: 4 equal unit resistors (Rppd or Rhigh) between `vrefp` and `vrefn`, taps at
+- Reference range: `vrefn`/`vrefp` within 0.3…0.9 V (the comparators' input common-mode
+  range at 1.2 V); the testbenches use exactly these values.
+- `Ladder`: 4 equal Rhigh units (0.5 × 4 µm, ~12 kΩ) between `vrefn` and `vrefp`, taps at
   1/4, 1/2, 3/4.
-- `Comparator` ×3: 5-transistor OTA plus output inverter; input-pair type (NMOS/PMOS) chosen
-  so that all ladder taps lie in its input common-mode range at 1.2 V (decide by DC sim; the
-  testbench reference range follows, e.g. `vrefn`/`vrefp` inside the rails).
-- `Bias`: resistor into a diode-connected transistor, mirrored into the comparator tails (no
-  bias pin).
+- `Comparator` ×3 (`comparator.ord`): 5-transistor OTA (NMOS input pair, PMOS mirror load,
+  NMOS tail) plus output inverter, `out = inp > inn`; `inp` = `vin`, `inn` = tap. Offset
+  ≤ 10 mV over the reference range (`comparator_tb`).
+- `Bias`: ~100 kΩ Rhigh meander into a diode-connected NMOS of the tail's size (~7.5 µA),
+  gate `vbn` shared by the comparator tails (no bias pin).
 - `ThermEnc`: thermometer `t[2:0]` → binary: `d1 = t1`, `d0 = t0 ^ t1 ^ t2` (two `xor2` + a
-  buffer), stdcell schematic laid out by `ordec.layout.pnr`.
-- Layout: analog sub-cells with PDK PCells, placed by hand/constraints; `ThermEnc` as pnr
-  block; top-level wiring with `SRouter`.
+  buffer), stdcell schematic laid out by `ordec.layout.pnr` as a single row.
+- Layout: comparators in a row between shared Metal1 `vss`/`vdd` rails (Ptap/Ntap per
+  comparator), `Bias` left of them, `ThermEnc` right of them, `Ladder` (serpentine row of
+  upright and flipped resistors) below. Comparator signal pins are Metal2 pads; `vin`,
+  `vbn` and the thermometer lines run on Metal4, ladder taps on Metal2/Metal3. Macro pins:
+  `vin` (Metal4, left edge), `vrefn`/`vrefp` (ladder terminals, bottom), `d[1:0]` (the
+  encoder's Metal4 pads, reached from below), `vdd`/`vss` (rails).
 
 **`Dac` (`macro_dac`)** — 3-bit R-2R DAC with unbuffered output.
 Ports: `d[2:0]`, `vout`, `vdd`, `vss`.
@@ -256,38 +267,27 @@ Ports: `va`, `vb`, `vout`, `vrefp`, `vrefn`, `vdd`, `vss`.
 - Two `Adc` instances, `Adder` (2b+2b→3b: half adder + full adder from `xor2`/`and2`/`or2`,
   pnr block, sub-cell in `src/ams/mixsum/`), one `Dac`.
 - Output: `vout = vdd · (qa + qb) / 8`, `qa`/`qb` the ADC codes.
-- Layout: macro instances placed side by side, wiring with `SRouter` to the pnr blocks' Metal4
-  port pads, supply straps tying `vdd`/`vss` of all children.
+- Layout: `adc_a` mirrored (`FlippedSouth`) below `adc_b`, so that their ladders face each
+  other across a gap where `vrefn`/`vrefp` are bridged (Metal1) and led to the left edge
+  (Metal2). Right of the ADCs: Metal2 supply straps (the macro's `vdd`/`vss` pins) tying all
+  children's rails, a routing channel, the adder and the DAC above it. Signals between the
+  children run horizontally on Metal3 and vertically on Metal4, into the Metal4 pads of the
+  ADC outputs, the adder and the DAC drivers.
 
 **Testbenches** (`src/tb/`, all self-checking with `PassFail`):
 - `adc_tb`: slow ramp on `vin` across the reference range; check the decoded code against the
   ideal thresholds (with a margin around transitions); report code vs. `vin`.
+- `comparator_tb`: DC sweep of `inp` around `inn` at the ends and the middle of the
+  reference range (with the ADC's `Bias`); check offset and output swing.
 - `dac_tb`: step through all 8 codes with `Vpulse` sources (as in ORDeC's `adder_pnr.ord`
   testbench); check settled `vout` against `vdd · code / 8` within ¼ LSB (100 fF load).
-- `mixsum_tb`: two ramps/sines of different frequencies on `va`, `vb`; Python reference model
-  `ideal(qa) + ideal(qb)` → expected `vout`; check at settled points away from code
-  transitions; plot inputs, codes, output.
+- `mixsum_tb` (cell `MixsumTb`): two sines of different frequencies on `va`, `vb`; Python
+  reference model `ideal(qa) + ideal(qb)` → expected `vout`; check at settled points away
+  from code transitions; every sum 0…6 must be covered; plot inputs, output and reference.
 
 ## Implementation phases
 
 Each sub-phase ends with the example flow importing and the new tasks running end to end.
-
-### 3.5 — ADC
-
-- `src/ams/adc/`: `Ladder`, `Comparator`, `Bias`, `ThermEnc`, `Adc` (schematics first,
-  then layouts).
-- `src/tb/adc_tb.ord`; optionally a comparator unit testbench (DC transfer, offset).
-
-Acceptance: `adc_tb.sim`, `macro_adc.drc`, `macro_adc.lvs`, `macro_adc.export` pass.
-
-### 3.6 — `MixSum` parent
-
-- `src/ams/mixsum/`: `Adder` (pnr block), `MixSum` (schematic importing `Adc`/`Dac`, layout
-  assembly).
-- `src/tb/mixsum_tb.ord` with Python reference model.
-
-Acceptance: `mixsum_tb.sim`, `macro_mixsum.drc`, `macro_mixsum.lvs` (hierarchical, children
-compared pairwise), `macro_mixsum.export` pass.
 
 ### 3.7 — Digital-visible models
 
@@ -319,8 +319,9 @@ Acceptance: `mixsum_model_tb.sim_rtl_icarus` passes.
   paths meanwhile. Check LibreLane products for paths before importing them in phase 4.
 - **Shared stdcell library upstream**: a cached `ihp130` stdcell `ExtLibrary` in ORDeC would
   replace `src/ams/stdcells.py`.
-- **Comparator input range** at 1.2 V decides the reference range of the demo; acceptable to
-  constrain `vrefp`/`vrefn` inside the rails.
+- **Multi-row pnr blocks**: a two-row `ThermEnc` produced an NW.d violation (NWell to
+  N+ Activ near the shared rail); the demo's blocks stay single-row via
+  `stdcells.pnr(aspect=...)`. Investigate and fix upstream in `ordec.layout.pnr`.
 - **Simulation runtime**: transistor-level stdcells in ngspice; keep testbench durations
   short, few corners by default.
 - **ORDeC version**: `requirements.txt` lists `ordec` unpinned while development uses the

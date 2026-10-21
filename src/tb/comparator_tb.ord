@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: SHL-2.1
+# SPDX-FileCopyrightText: David Schröder 2026
+
+"""
+Unit testbench of the ADC comparator: DC transfer around several input common-mode
+voltages, checking the input offset over the ADC's reference range.
+"""
+
+from ordec.core import *
+from ordec.lib.base import Vdc, Gnd
+from ams.adc.adc import Bias
+from ams.adc.comparator import Comparator
+
+VDD = 1.2
+VCMS = (0.3, 0.6, 0.9)  # common-mode voltages (ends and middle of the reference range)
+SPAN = 0.05             # inp swept over vcm +- SPAN
+STEPS = 201
+MAX_OFFSET = 0.01       # V
+
+
+cell ComparatorTb:
+    """inp swept around inn = vcm; vbn from the ADC's Bias cell."""
+    vcm = Parameter(R, default=R("0.6"))
+
+    viewgen schematic(self) -> Schematic:
+        net vdd, vss, inp, inn, out, vbn
+        Comparator dut:
+            .pos = (20, 8)
+            .vdd -- vdd; .vss -- vss; .vbn -- vbn
+            .inp -- inp; .inn -- inn; .out -- out
+        Bias bias: .pos=(8, 8); .vdd -- vdd; .vss -- vss; .vbn -- vbn
+        Vdc vdd_src: .pos=(32, 16); .$dc=VDD; .n -- vss; .p -- vdd
+        Vdc vinn_src: .pos=(2, 2); .$dc=self.vcm; .n -- vss; .p -- inn
+        Vdc vinp_src: .pos=(14, 2); .$dc=self.vcm; .n -- vss; .p -- inp
+        Gnd gnd: .pos=(32, 0); .p -- vss
+
+    viewgen sim_dc(self) -> Simulation:
+        .simulate().dc_sweep(self.schematic.vinp_src, self.vcm - SPAN, self.vcm + SPAN, STEPS)
+
+    viewgen report_dc(self) -> Report:
+        .markdown(f"""
+            # Comparator offset
+            inp is swept over inn ± {SPAN * 1e3:g} mV at each common-mode voltage; the
+            offset is inp - inn where out crosses vdd / 2 (limit ± {MAX_OFFSET * 1e3:g} mV).
+            """)
+        rows = []
+        for vcm in VCMS:
+            sim = ComparatorTb(vcm=R(vcm)).sim_dc
+            vin = list(sim.inp.voltage)
+            out = list(sim.out.voltage)
+            k = next((k for k in range(len(out)) if out[k] > VDD / 2), None)
+            if k is None:
+                .passfail(f"vcm = {vcm} V", False, "out never rises above vdd / 2")
+                continue
+            offset = vin[k] - vcm
+            rows.append(f"| {vcm} | {offset * 1e3:+.2f} | {out[0]:.3f} | {out[-1]:.3f} |")
+            .passfail(f"vcm = {vcm} V", abs(offset) <= MAX_OFFSET and out[0] < 0.1 * VDD
+                and out[-1] > 0.9 * VDD, f"offset {offset * 1e3:+.2f} mV, out from "
+                f"{out[0]:.3f} V to {out[-1]:.3f} V")
+        .markdown("| vcm (V) | offset (mV) | out low (V) | out high (V) |\n|---|---|---|---|\n"
+            + "\n".join(rows))

@@ -58,7 +58,9 @@ flow['macro_counter'] = DigitalMacro(pdk,
 )
 
 # Analog macros (ORDeC cells; module ams.<name>.<name> in src/ams/<name>/)
+flow['macro_adc'] = AnalogMacro(pdk, cell='Adc')
 flow['macro_dac'] = AnalogMacro(pdk, cell='Dac')
+flow['macro_mixsum'] = AnalogMacro(pdk, cell='MixSum')
 
 # FPGA
 flow['fpga_top'] = FpgaTop(dependency_map={'srcs':'srcs'})
@@ -79,4 +81,7 @@ flow['system_tb'] = Testbench(['system_tb.sv', 'nexys_video_board.sv'], sdf_scop
 
 # AnalogTestbench: ORDeC testbench cell CamelCase(<name>) in src/tb/<name>.ord; the DUT is
 # bound by its import
+flow['adc_tb'] = AnalogTestbench(pdk)
+flow['comparator_tb'] = AnalogTestbench(pdk)
 flow['dac_tb'] = AnalogTestbench(pdk)
+flow['mixsum_tb'] = AnalogTestbench(pdk)

@@ -1,0 +1,380 @@
+# SPDX-License-Identifier: SHL-2.1
+# SPDX-FileCopyrightText: David Schröder 2026
+
+"""
+2-bit continuous-time flash ADC: d[1:0] = number of ladder taps below vin.
+
+A ladder of equal resistors divides vrefn..vrefp into four steps; three comparators
+compare vin against the taps (thermometer code t[2:0]); a stdcell encoder converts the
+thermometer code to binary. The comparators work for vrefn/vrefp within 0.3..0.9 V at
+vdd = 1.2 V.
+"""
+
+from ordec.core import *
+from ordec.lib.ihp130 import SG13G2, Rhigh, Nmos, Ptap
+from ordec.layout import SRouter
+from ams import stdcells
+from ams.adc.comparator import Comparator, W_TAIL, L_TAIL, gate_contact, m2_pad
+
+N = 2               # bits
+TAPS = 2 ** N - 1   # comparators
+R_L = 4u            # ladder unit resistor: Rhigh, about 12 kOhm
+R_W = 500n
+
+Xor = stdcells.cell("xor2_1")
+Buf = stdcells.cell("buf_1")
+
+
+cell Ladder:
+    """2^N equal resistors from vrefn to vrefp; tap[i] at (i + 1) / 2^N of the range."""
+
+    viewgen symbol(self) -> Symbol:
+        inout vrefp: .orient=North
+        inout vrefn: .orient=South
+        inout vss: .orient=West
+        path tap
+        for i in range(TAPS):
+            output tap[i]: .orient=East
+
+    viewgen schematic(self) -> Schematic:
+        port vrefn: .pos=(4, 0); .orient=North
+        port vrefp: .pos=(4, 6 * TAPS + 10); .orient=South
+        port vss: .pos=(0, 2); .orient=East
+        path tap, r
+        nodes = [vrefn]
+        for i in range(TAPS):
+            port tap[i]: .pos=(10, 6 * i + 6); .orient=West
+            nodes.append(tap[i])
+        nodes.append(vrefp)
+        for i in range(TAPS + 1):
+            Rhigh r[i]:
+                .pos = (2, 6 * i + 1)
+                .$l = R_L; .$w = R_W
+                .n -- nodes[i]; .p -- nodes[i + 1]; .sub -- vss
+
+    viewgen layout(self) -> Layout:
+        # Serpentine row: r[i] upright for even i, upside down for odd i, so that
+        # consecutive resistors join alternately at the top and the bottom (on Metal1).
+        # vrefn is at the bottom of r[0], the Ptap left of it.
+        .ref_layers = SG13G2().layers
+        layers = .ref_layers
+        COL = 2000
+
+        path r, tap
+        for i in range(TAPS + 1):
+            Rhigh(l=R_L, w=R_W) r[i]:
+                if i == 0:
+                    ! .pos == (0, 0)
+                elif i % 2:
+                    .orient = FlippedSouth
+                    ! .term_n.center == r[i - 1].term_p.center + (COL, 0)
+                else:
+                    ! .term_n.center == r[i - 1].term_p.center + (COL, 0)
+        for i in range(TAPS):
+            LayoutRect tap[i]:
+                .layer = layers.Metal1
+                ! .y_extent == r[i].term_p.y_extent
+                ! .lx == r[i].term_p.lx
+                ! .ux == r[i + 1].term_n.ux
+                .create_pin(self.symbol.tap[i])
+
+        Ptap(l=0.7u, w=0.7u) ptap:
+            ! .m1.cy == r[0].term_n.cy
+            ! .m1.ux == r[0].term_n.lx - 1500
+        LayoutRect vss:
+            .layer = layers.Metal1
+            ! .rect == ptap.m1.rect
+            .create_pin(self.symbol.vss)
+        LayoutRect vrefn:
+            .layer = layers.Metal1
+            ! .rect == r[0].term_n.rect
+            .create_pin(self.symbol.vrefn)
+        LayoutRect vrefp:
+            .layer = layers.Metal1
+            ! .rect == r[TAPS].term_p.rect
+            .create_pin(self.symbol.vrefp)
+
+
+cell Bias:
+    """Bias voltage vbn of the comparator tails: resistor from vdd into an NMOS diode."""
+
+    viewgen symbol(self) -> Symbol:
+        output vbn: .orient=East
+        inout vdd: .orient=North
+        inout vss: .orient=South
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 12); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        port vbn: .pos=(10, 6); .orient=West
+        # About 100 kOhm: 7.5 uA through the diode.
+        Rhigh(l=8u, w=R_W, b=3, ps=0.4u) rb:
+            .pos = (2, 7)
+            .p -- vdd; .n -- vbn; .sub -- vss
+        Nmos(w=W_TAIL, l=L_TAIL) mb:
+            .pos = (2, 1)
+            .g -- vbn; .d -- vbn; .s -- vss; .b -- vss
+
+    viewgen layout(self) -> Layout:
+        # Meander rb on top (both terminals at its bottom), diode mb below rb.n with its
+        # gate contact in between, vss rail with Ptap below mb.
+        .ref_layers = SG13G2().layers
+        layers = .ref_layers
+
+        Nmos(w=W_TAIL, l=L_TAIL) mb:
+            ! .pos == (0, 0)
+        Rhigh(l=8u, w=R_W, b=3, ps=0.4u) rb:
+            ! .term_n.cx == mb.sd[1].cx
+            ! .term_n.ly == mb.poly[0].uy + 1800
+        gate = gate_contact(mb.poly[0], up=True)
+        LayoutRect diode:
+            .layer = layers.Metal1
+            ! .y_extent == gate.y_extent
+            ! .lx == gate.lx
+            ! .ux == mb.sd[1].ux
+        LayoutRect drain:
+            .layer = layers.Metal1
+            ! .x_extent == mb.sd[1].x_extent
+            ! .ly == mb.sd[1].ly
+            ! .uy == rb.term_n.cy
+
+        LayoutRect vss:
+            .layer = layers.Metal1
+            ! .lx == mb.activ.lx - 1500
+            ! .ux == mb.activ.ux
+            ! .uy == mb.poly[0].ly - 600
+            ! .height == 300
+            .create_pin(self.symbol.vss)
+        LayoutRect source:
+            .layer = layers.Metal1
+            ! .x_extent == mb.sd[0].x_extent
+            ! .ly == vss.cy
+            ! .uy == mb.sd[0].uy
+        Ptap(l=0.7u, w=0.7u) ptap:
+            ! .m1.cy == vss.cy
+            ! .activ.lx == vss.lx + 200
+
+        LayoutRect vdd:
+            .layer = layers.Metal1
+            ! .rect == rb.term_p.rect
+            .create_pin(self.symbol.vdd)
+        LayoutRect vbn:
+            .layer = layers.Metal2
+            ! .rect == m2_pad(gate).rect
+            .create_pin(self.symbol.vbn)
+
+
+cell ThermEnc:
+    """Thermometer to binary: d[1] = t[1], d[0] = t[0] ^ t[1] ^ t[2]."""
+
+    viewgen symbol(self) -> Symbol:
+        inout vdd: .orient=North
+        inout vss: .orient=South
+        path t, d
+        for i in range(TAPS):
+            input t[i]: .orient=West
+        for i in range(N):
+            output d[i]: .orient=East
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 26); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        path t, d
+        for i in range(TAPS):
+            port t[i]: .pos=(0, 6 * i + 4); .orient=East
+        for i in range(N):
+            port d[i]: .pos=(36, 12 * i + 6); .orient=West
+        net t01
+        Xor x0:
+            .pos = (6, 2)
+            .A -- t[0]; .B -- t[1]; .X -- t01
+            .VDD -- vdd; .VSS -- vss
+        Xor x1:
+            .pos = (20, 2)
+            .A -- t01; .B -- t[2]; .X -- d[0]
+            .VDD -- vdd; .VSS -- vss
+        Buf b1:
+            .pos = (20, 14)
+            .A -- t[1]; .X -- d[1]
+            .VDD -- vdd; .VSS -- vss
+
+    viewgen layout(self) -> Layout:
+        # One row; thermometer inputs leave at the top, outputs at the bottom.
+        edges = {f"t[{i}]": "top" for i in range(TAPS)} | {f"d[{i}]": "bottom" for i in range(N)}
+        stdcells.pnr(self.schematic, ., aspect=0.1, port_edges=edges)
+
+
+cell Adc:
+    """2-bit flash ADC: d = number of ladder taps below vin."""
+
+    viewgen symbol(self) -> Symbol:
+        input vin: .orient=West
+        inout vrefp: .orient=West
+        inout vrefn: .orient=West
+        inout vdd: .orient=North
+        inout vss: .orient=South
+        path d
+        for i in range(N):
+            output d[i]: .orient=East
+
+    viewgen schematic(self) -> Schematic:
+        port vdd: .pos=(0, 40); .orient=East
+        port vss: .pos=(0, 0); .orient=East
+        port vin: .pos=(0, 30); .orient=East
+        port vrefp: .pos=(0, 24); .orient=East
+        port vrefn: .pos=(0, 4); .orient=East
+        path d, tap, t, cmp
+        for i in range(N):
+            port d[i]: .pos=(64, 6 * i + 16); .orient=West
+        net vbn
+        for i in range(TAPS):
+            net tap[i]
+            net t[i]
+
+        Ladder ladder:
+            .pos = (6, 8)
+            .vrefp -- vrefp; .vrefn -- vrefn; .vss -- vss
+            for i in range(TAPS):
+                .tap[i] -- tap[i]
+        Bias bias:
+            .pos = (6, 30)
+            .vdd -- vdd; .vss -- vss; .vbn -- vbn
+        for i in range(TAPS):
+            Comparator cmp[i]:
+                .pos = (24, 10 * i + 4)
+                .inp -- vin; .inn -- tap[i]; .vbn -- vbn; .out -- t[i]
+                .vdd -- vdd; .vss -- vss
+        ThermEnc enc:
+            .pos = (44, 12)
+            .vdd -- vdd; .vss -- vss
+            for i in range(TAPS):
+                .t[i] -- t[i]
+            for i in range(N):
+                .d[i] -- d[i]
+
+    viewgen layout(self) -> Layout:
+        # Comparators in a row between shared vss/vdd rails (Metal1), Bias left of them,
+        # ThermEnc right of them, Ladder below. Buses on Metal4 (vin, vbn, thermometer
+        # lines), ladder taps on Metal2 (horizontal) and Metal3 (vertical); comparator pins
+        # are Metal2 pads. Positions put the lower left corner of the macro at the origin.
+        .ref_layers = SG13G2().layers
+        layers = .ref_layers
+        sr = SRouter(SG13G2().default_routing_spec)
+        port = stdcells.port
+        PITCH = 7000                    # comparator pitch
+        Y_T = [4400, 5100, 5800]        # thermometer lines (relative to the comparators)
+
+        path cmp, d
+        for i in range(TAPS):
+            Comparator cmp[i]:
+                ! .pos == (11950 + i * PITCH, 10430)
+        Bias bias:
+            ! .vss.cy == cmp[0].vss.cy
+            ! .vdd.ux == cmp[0].vss.lx - 2500
+        Ladder ladder:
+            ! .tap[0].uy == cmp[0].vss.ly - 1800
+            ! .tap[0].lx == cmp[0].inn.cx + 1500
+        ThermEnc enc:
+            ! port(enc, "vss").cy == cmp[0].vss.cy + 2500
+            ! port(enc, "vss").lx == cmp[TAPS - 1].vss.ux + 3500
+        enc_vss = port(enc, "vss")
+        enc_vdd = port(enc, "vdd")
+        y0 = cmp[0].pos.y
+
+        # Supplies: rails through all comparators and Bias, straps to ThermEnc and Ladder.
+        LayoutRect vss:
+            .layer = layers.Metal1
+            ! .y_extent == cmp[0].vss.y_extent
+            ! .lx == bias.vss.lx
+            ! .ux == enc_vdd.ux + 600
+            .create_pin(self.symbol.vss)
+        LayoutRect vdd:
+            .layer = layers.Metal1
+            ! .y_extent == cmp[0].vdd.y_extent
+            ! .lx == cmp[0].vdd.lx
+            ! .ux == vss.ux
+            .create_pin(self.symbol.vdd)
+        LayoutRect enc_vss_strap:
+            .layer = layers.Metal1
+            ! .lx == enc_vss.lx
+            ! .width == 400
+            ! .ly == vss.cy
+            ! .uy == enc_vss.cy
+        LayoutRect enc_vdd_strap:
+            .layer = layers.Metal1
+            ! .ux == vss.ux
+            ! .width == 400
+            ! .ly == enc_vdd.ly
+            ! .uy == vdd.cy
+        LayoutRect enc_vdd_rail:
+            .layer = layers.Metal1
+            ! .y_extent == enc_vdd.y_extent
+            ! .lx == enc_vdd.lx
+            ! .ux == vss.ux
+        LayoutRect ladder_vss:
+            .layer = layers.Metal1
+            ! .x_extent == ladder.vss.x_extent
+            ! .ly == ladder.vss.cy
+            ! .uy == vss.cy
+        sr.move(layers.Metal1, bias.vdd.center)
+        sr.layer(layers.Metal2)
+        sr.wire_y(vdd.cy)
+        sr.wire_x(vdd.lx + 300)
+        sr.layer(layers.Metal1)
+
+        # vbn from Bias to the comparator tails.
+        sr.move(layers.Metal2, bias.vbn.center)
+        sr.layer(layers.Metal4)
+        sr.wire_y(cmp[0].vbn.cy)
+        sr.wire_x(cmp[TAPS - 1].vbn.cx)
+        for i in range(TAPS):
+            sr.move(layers.Metal4, cmp[i].vbn.center)
+            sr.layer(layers.Metal2)
+
+        # vin to all comparators (inp), from the left edge.
+        LayoutRect vin:
+            .layer = layers.Metal4
+            ! .lx == bias.vss.lx
+            ! .cy == cmp[0].inp.cy
+            ! .size == (400, 400)
+            .create_pin(self.symbol.vin)
+        sr.move(layers.Metal4, vin.center)
+        sr.wire_x(cmp[TAPS - 1].inp.cx)
+        for i in range(TAPS):
+            sr.move(layers.Metal4, cmp[i].inp.center)
+            sr.layer(layers.Metal2)
+
+        # Ladder taps to the comparators (inn).
+        for i in range(TAPS):
+            sr.move(layers.Metal1, ladder.tap[i].center)
+            sr.layer(layers.Metal2)
+            sr.wire_x(cmp[i].inn.cx)
+            sr.layer(layers.Metal3)
+            sr.wire_y(cmp[i].inn.cy)
+            sr.layer(layers.Metal2)
+
+        # Thermometer code: up from each comparator output, then on Metal4 across and
+        # down into ThermEnc's top-edge pads (t[i] lower and further left for smaller i,
+        # so the lines do not cross).
+        for i in range(TAPS):
+            pad = port(enc, "t", i)
+            sr.move(layers.Metal2, cmp[i].out.center)
+            sr.layer(layers.Metal3)
+            sr.wire_y(y0 + Y_T[i])
+            sr.layer(layers.Metal4)
+            sr.wire_x(pad.cx)
+            sr.wire_y(pad.cy)
+
+        LayoutRect vrefn:
+            .layer = layers.Metal1
+            ! .rect == ladder.vrefn.rect
+            .create_pin(self.symbol.vrefn)
+        LayoutRect vrefp:
+            .layer = layers.Metal1
+            ! .rect == ladder.vrefp.rect
+            .create_pin(self.symbol.vrefp)
+        for i in range(N):
+            LayoutRect d[i]:
+                .layer = layers.Metal4
+                ! .rect == port(enc, "d", i).rect
+                .create_pin(self.symbol.d[i])

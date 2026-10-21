@@ -7,6 +7,7 @@ Import from here instead of building an own ExtLibrary: separate libraries would
 distinct, suffixed copies of the same cells into netlists and GDS.
 """
 
+import dataclasses
 import functools
 
 from ordec.core.schema.layout import LayoutInstanceSubcursor, LayoutPin
@@ -32,13 +33,17 @@ def pin_rects() -> dict:
     return lef_pin_rects(ihp130.pdk().stdcell_lef, "Metal1")
 
 
-def pnr(schematic, layout, **kwargs):
+def pnr(schematic, layout, aspect: float = None, **kwargs):
     """Place and route a stdcell schematic into layout (supplies vdd/vss).
 
     Signal ports end on Metal4 pads at the top/bottom edge (choose with
     port_edges={'net': 'top'|'bottom'}), supplies on the Metal1 rails or side straps.
+    aspect: preferred height/width of the block (small values give a single row).
     """
-    return place_and_route(schematic, layout, grid=ihp130.grid,
+    grid = ihp130.grid
+    if aspect is not None:
+        grid = dataclasses.replace(grid, target_aspect=aspect)
+    return place_and_route(schematic, layout, grid=grid,
         routing_spec=ihp130.SG13G2().default_routing_spec, pin_rects=pin_rects(), **kwargs)
 
 
