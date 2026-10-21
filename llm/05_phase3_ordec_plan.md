@@ -132,6 +132,8 @@ src/tb/
   directory, so using it there requires the upstream change in Open items. PDK PCell
   structures keep their parameter-derived names (e.g. `rppd_l_2u_w_500n_b_0_ps_180n_m_1`),
   identical across macros built with the same ORDeC version.
+- Exported pin names are the ORDeC `Directory` names (`d[0]` → `d_0`), identical in GDS
+  labels, SPICE subckt ports and LEF pins (and thus in `MacroProduct.pins`).
 
 ### D6 — Physical rules for analog macros
 
@@ -145,8 +147,19 @@ src/tb/
   goes to the substrate-tap net (`vss`), the cell owning resistors places a `Ptap` on it,
   and a cell whose substrate net is not a port needs a `sub` port (see ORDeC docs,
   `ihp130_substrate_lvs`).
-- Signoff runs on the same generator output that is exported (deterministic regeneration);
-  the preferred end state is DRC/LVS on exactly the exported files (see Open items).
+- A macro layout has its lower left corner (bounding box over all layers) at the origin;
+  `abstract` checks this, and the LEF uses `ORIGIN 0 0`. Top-level pins are
+  `LayoutRect`/`LayoutPoly` shapes of the macro's top cell (e.g. a copy of a sub-cell's pad,
+  `! .rect == port(drv, 'd', 0).rect`).
+- LEF abstract: pins (direction from the symbol, supplies `POWER`/`GROUND`), obstructions as
+  the bounding box of each used metal up to the macro limit (conservative: pins lie inside).
+- Product files: GDS without paths (converted to polygons, since ORDeC's GDS reader drops
+  path widths, see Open items); SPICE with `.subckt` definitions only (no title, `.lib` or
+  `.option` cards), self-contained including library cells, so it imports into an
+  `ExtLibrary` and can be included in a simulator deck.
+- Signoff runs on the same generator output that is exported (deterministic regeneration).
+  `export` additionally imports the product (LEF/GDS/SPICE) as `ExtLibrary` cell and runs
+  LVS on exactly the exported files; DRC on the exported GDS is still open (see Open items).
 - Post-layout extraction/simulation is out of scope (ORDeC has no PEX); a `pex` task is added
   later via KLayout/Magic.
 
@@ -174,7 +187,7 @@ hatch).
 | `drc` | PDK DRC via ORDeC/KLayout, plus macro layer limit; report on disk |
 | `lvs` | LVS via ORDeC/KLayout; report on disk |
 | `abstract` (hidden) | LEF abstract: size, pins (direction from symbol, supplies as POWER/GROUND), obstructions |
-| `export` | `MacroProduct(kind="analog")`: gds, lef, spice, model, pins, size |
+| `export` | `MacroProduct(kind="analog")`: gds, lef, spice, model, pins, size; LVS of the imported product |
 | `view_rtl` (hidden) | `SimView` with the behavioral model (for Verilog `Testbench`s) |
 | `view` | Open the GDS in KLayout |
 | `ui` | Open the cell in the ORDeC web UI (local mode) |
@@ -198,11 +211,16 @@ results, `<report>.json` with the report data, plot series as CSV; fail on faili
   JSON protocol, error propagation with ORDeC tracebacks), `ui(pdk, module, cwd, path, views)`.
 - Worker script `flow/tools/ordec_worker.py` (stand-alone, does not import the `flow`
   package): one function per action, registered with `@action`: `elaborate`, `netlist`,
-  `layout`, `drc`, `lvs`, `abstract`, `reports`.
-- `flow/tools/lef.py`: add `write_macro(...)` (LEF abstract writer) next to `read_macro`.
-- `Pdk` hooks: `ordec_env()`, `ordec_module` (`ordec.lib.ihp130`), `ordec_drc`/`ordec_lvs`
-  (entry point names in that module), `macro_max_layer` (also used for LibreLane's
-  `RT_MAX_LAYER`). IHP specifics in `flow/pdk/ihp_sg13g2/`.
+  `layout`, `drc`, `lvs`, `abstract` (LEF data as JSON), `lvs_product` (round trip of an
+  exported product), `reports`. Actions working on the request's cell import it lazily.
+- `flow/tools/lef.py`: `write_macro(lef, abstract)` next to `read_macro`;
+  `flow/tools/klayout.py`: `view(layouts, lyp)`.
+- `Pdk` hooks: `ordec_env()`, `ordec_module` (`ordec.lib.ihp130`), names in that module:
+  `ordec_tech` (technology cell `SG13G2`: layers, and the metal stack order of its
+  `default_routing_spec` for the layer limit and LEF obstructions), `ordec_drc`/`ordec_lvs`
+  (entry points), `ordec_device_map` (SPICE import); `macro_max_layer` (also LibreLane's
+  `RT_MAX_LAYER`); `klayout_lyp()` (layer properties for `view`). IHP specifics in
+  `flow/pdk/ihp_sg13g2/`.
 
 ## Demo design
 
@@ -226,9 +244,12 @@ Ports: `vin`, `vrefp`, `vrefn`, `d[1:0]`, `vdd`, `vss`.
 Ports: `d[2:0]`, `vout`, `vdd`, `vss`.
 - `DacDrivers`: 3 stdcell buffers (pnr block) driving the ladder rail to rail.
 - `R2r`: unit R and 2R (= two series units, for matching); R large against the driver output
-  resistance (e.g. ≥10 kΩ unit with Rhigh). `vout = vdd · code / 8`. With `buf_1` drivers
-  and a 12 kΩ unit (Rhigh 0.5 × 4 µm), the operating point is up to ~2.7 % low (MSB); pick
-  driver strength/unit length so the `dac_tb` tolerance holds.
+  resistance: `buf_1` drivers and a ~12 kΩ unit (Rhigh 0.5 × 4 µm) keep the settled output
+  within ~0.11 LSB (2.6 %, worst at the MSB), inside the `dac_tb` tolerance of ¼ LSB.
+  `vout = vdd · code / 8`.
+- Layout: `R2r` as resistor columns (termination, one 2R stack per bit) with the series
+  resistors in a row above, wired on Metal1, `Ptap` beside the termination; `DacDrivers`
+  pnr block below; driver outputs fan out Metal4 → Metal3 → Metal2 to the ladder inputs.
 
 **`MixSum` (`macro_mixsum`)** — parent.
 Ports: `va`, `vb`, `vout`, `vrefp`, `vrefn`, `vdd`, `vss`.
@@ -242,8 +263,7 @@ Ports: `va`, `vb`, `vout`, `vrefp`, `vrefn`, `vdd`, `vss`.
 - `adc_tb`: slow ramp on `vin` across the reference range; check the decoded code against the
   ideal thresholds (with a margin around transitions); report code vs. `vin`.
 - `dac_tb`: step through all 8 codes with `Vpulse` sources (as in ORDeC's `adder_pnr.ord`
-  testbench); check settled `vout` against `vdd · code / 8` within a tolerance (output
-  load specified in the testbench).
+  testbench); check settled `vout` against `vdd · code / 8` within ¼ LSB (100 fF load).
 - `mixsum_tb`: two ramps/sines of different frequencies on `va`, `vb`; Python reference model
   `ideal(qa) + ideal(qb)` → expected `vout`; check at settled points away from code
   transitions; plot inputs, codes, output.
@@ -251,32 +271,6 @@ Ports: `va`, `vb`, `vout`, `vrefp`, `vrefn`, `vdd`, `vss`.
 ## Implementation phases
 
 Each sub-phase ends with the example flow importing and the new tasks running end to end.
-
-### 3.2 — `AnalogMacro` core tasks with the DAC
-
-- `AnalogMacro` tasks `netlist`, `layout`, `drc`, `lvs`, `view`, `ui` next to `elaborate`,
-  each backed by a worker action.
-- `Dac` layout (`DacDrivers` via `stdcells.pnr`, `R2r` with PCells, `Ptap` and `SRouter`),
-  the first real macro.
-
-Acceptance: `macro_dac.drc` and `macro_dac.lvs` pass; `macro_dac.view` shows the GDS.
-
-### 3.3 — `AnalogTestbench` with `dac_tb`
-
-- `flow/analog_testbench.py` (`sim`, `ui`), report files on disk, pass/fail gating.
-- `src/tb/dac_tb.ord`.
-
-Acceptance: `dac_tb.sim` passes; a deliberately wrong tolerance makes it fail.
-
-### 3.4 — Abstract and export
-
-- LEF writer (`flow/tools/lef.py`), `abstract` task; layer-limit check in `drc`.
-- Export `Directory` naming (D5); `export` task producing `MacroProduct(kind="analog")`
-  (`gds`, `lef`, `spice`, `model`, pins/size via `lef.read_macro`), gated on `drc`/`lvs`.
-- Round-trip check: the exported product reads back into an ORDeC `ExtLibrary` (LEF/GDS/SPICE)
-  and passes LVS as an imported cell (proves the phase-4 import path for analog products).
-
-Acceptance: `macro_dac.export` writes a complete product; the round-trip check passes.
 
 ### 3.5 — ADC
 
@@ -314,11 +308,15 @@ Acceptance: `mixsum_model_tb.sim_rtl_icarus` passes.
 
 ## Open items (decide/verify during implementation)
 
-- **Signoff on exported files**: preferred is a small upstream ORDeC change letting
-  `run_drc`/`run_lvs` take a `Directory` and run directory (or file-based entry points), so
-  checks run on exactly the exported names/files; until then, rely on deterministic
-  regeneration. (Substituting the export `Directory` for `klayout.LvsDirectory` inside
-  `run_lvs` gives a clean LVS, so a `directory` parameter is all `run_lvs` needs.)
+- **Signoff on exported files**: LVS runs on the exported files through the `export` round
+  trip. For DRC (and for `lvs` with export names), preferred is a small upstream ORDeC
+  change letting `run_drc`/`run_lvs` take a `Directory` and run directory (or file-based
+  entry points); until then, rely on deterministic regeneration. (Substituting the export
+  `Directory` for `klayout.LvsDirectory` inside `run_lvs` gives a clean LVS, so a
+  `directory` parameter is all `run_lvs` needs.)
+- **ORDeC GDS reader drops path widths** (`layout/gds_in.py` ignores the PATH `WIDTH`
+  record, so imported wires vanish): fix upstream; the flow writes product GDS without
+  paths meanwhile. Check LibreLane products for paths before importing them in phase 4.
 - **Shared stdcell library upstream**: a cached `ihp130` stdcell `ExtLibrary` in ORDeC would
   replace `src/ams/stdcells.py`.
 - **Comparator input range** at 1.2 V decides the reference range of the demo; acceptable to
@@ -334,7 +332,7 @@ Acceptance: `mixsum_model_tb.sim_rtl_icarus` passes.
 
 - `ChipTop` is an ORDeC cell; LibreLane `DigitalMacro` products enter it via `ExtLibrary`
   (LEF/GDS + powered Verilog netlist or SPICE, power-pin mapping to be verified), analog
-  macros either by source import (D1) or as products (round trip from 3.4).
+  macros either by source import (D1) or as products (the `export` round trip, D6).
 - Collecting multiple macro products into `ChipTop` uses a project-specific
   `dependency_map` in `flow/__init__.py`.
 - Export naming (D5) guarantees collision-free GDS merging.

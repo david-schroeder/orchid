@@ -23,10 +23,14 @@ class Pdk(ABC):
     """Topmost routing layer inside macros; layers above stay free for the toplevel."""
     ordec_module: str | None = None
     """ORDeC PDK module (e.g. ordec.lib.ihp130); None if ORDeC does not support the PDK."""
+    ordec_tech: str | None = None
+    """Technology cell in ordec_module (layers, default_routing_spec)."""
     ordec_drc: str | None = None
     """DRC entry point in ordec_module: f(layout, use_tempdir=False, **options) -> DrcReport."""
     ordec_lvs: str | None = None
     """LVS entry point in ordec_module: f(layout, symbol, use_tempdir=False) -> LvsReport."""
+    ordec_device_map: str | None = None
+    """SPICE model -> ORDeC device mapping in ordec_module (for importing SPICE netlists)."""
 
     def root(self) -> Path:
         """PDK directory."""
@@ -38,6 +42,10 @@ class Pdk(ABC):
     def ordec_env(self) -> dict[str, str]:
         """Environment variables ORDeC needs for this PDK (derived from root())."""
         return {}
+
+    def klayout_lyp(self) -> Path | None:
+        """KLayout layer properties file for viewing layouts."""
+        return None
 
     def librelane_flow_args(self) -> dict:
         """Keyword arguments for constructing a LibreLane flow."""

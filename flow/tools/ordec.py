@@ -37,13 +37,16 @@ def env(pdk: Pdk, path: list = []) -> dict[str, str]:
 def run(pdk: Pdk, request: dict, cwd: Path) -> dict:
     """Run one worker action in cwd and return its reply.
 
-    request: action, module, cell, params, path (import roots) and action options;
-    PDK entries are added here. Raises OrdecError if the action fails.
+    request: action, module, cell, params (the cell, for actions working on one), path
+    (import roots) and action options; PDK entries are added here. Raises OrdecError
+    if the action fails.
     """
     request = {"pdk": {
         "module": pdk.ordec_module,
+        "tech": pdk.ordec_tech,
         "drc": pdk.ordec_drc,
         "lvs": pdk.ordec_lvs,
+        "device_map": pdk.ordec_device_map,
         "max_layer": pdk.macro_max_layer,
     }} | request
     request["path"] = [str(p) for p in request.get("path", [])]
@@ -62,14 +65,14 @@ def run(pdk: Pdk, request: dict, cwd: Path) -> dict:
     reply = json.loads(reply_file.read_text())
     if reply["status"] != "ok":
         # The worker printed the traceback (task log); it is also in the reply file.
-        raise OrdecError(f"ORDeC {request.get('action')} of {request.get('module')}:"
-                         f"{request.get('cell')} failed: {reply['error']}")
+        target = f" of {request['module']}:{request['cell']}" if "cell" in request else ""
+        raise OrdecError(f"ORDeC {request.get('action')}{target} failed: {reply['error']}")
     return reply
 
 
 def ui(pdk: Pdk, module: str, cwd: Path, path: list = [], views: list[str] = []):
     """Open module in the ORDeC web UI (local mode); blocks until the server is stopped."""
-    cmd = [sys.executable, "-m", "ordec", "-m", module]
+    cmd = [sys.executable, "-m", "ordec", "-b", "-m", module]
     for v in views:
         cmd += ["-e", v]
     subprocess.run(cmd, cwd=cwd, env=env(pdk, path))

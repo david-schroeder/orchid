@@ -8,6 +8,7 @@ from .asic_top import AsicTop
 from .asic_macros import AsicMacros
 from .digital_macro import DigitalMacro
 from .analog_macro import AnalogMacro
+from .analog_testbench import AnalogTestbench
 from .simlibs_questa import SimlibsQuesta
 from .testbench import Testbench
 from .sources import Sources
@@ -75,3 +76,7 @@ flow['system_tb'] = Testbench(['system_tb.sv', 'nexys_video_board.sv'], sdf_scop
         'dut': 'fpga_top',
         'simlibs_questa': 'simlibs_questa'
     })
+
+# AnalogTestbench: ORDeC testbench cell CamelCase(<name>) in src/tb/<name>.ord; the DUT is
+# bound by its import
+flow['dac_tb'] = AnalogTestbench(pdk)

@@ -21,14 +21,19 @@ class IhpSg13g2(Pdk):
     # Signals up to Metal5; TopMetal1/2 belong to the macro power grids and the toplevel.
     macro_max_layer = "Metal5"
     ordec_module = "ordec.lib.ihp130"
+    ordec_tech = "SG13G2"
     ordec_drc = "run_drc"
     ordec_lvs = "run_lvs"
+    ordec_device_map = "device_map"
 
     # Not shipped with the PDK; bundled here.
     BONDPAD = "bondpad_70x70_novias"
 
     def ordec_env(self) -> dict[str, str]:
         return {"ORDEC_PDK_IHP_SG13G2": str(self.root())}
+
+    def klayout_lyp(self) -> Path:
+        return self.root() / "libs.tech/klayout/tech/sg13g2.lyp"
 
     def macro(self, cell: str) -> HardMacro:
         if cell in SRAM_CELLS:

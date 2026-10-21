@@ -10,7 +10,8 @@ resistance.
 """
 
 from ordec.core import *
-from ordec.lib.ihp130 import Rhigh
+from ordec.layout import SRouter
+from ordec.lib.ihp130 import SG13G2, Rhigh, Ptap
 from ams import stdcells
 
 N = 3       # bits
@@ -42,6 +43,11 @@ cell DacDrivers:
                 .pos = (7, 8 * i + 2)
                 .A -- d[i]; .X -- b[i]
                 .VDD -- vdd; .VSS -- vss
+
+    viewgen layout(self) -> Layout:
+        # Inputs leave at the bottom, ladder drives at the top (towards R2r).
+        edges = {f"d[{i}]": "bottom" for i in range(N)} | {f"b[{i}]": "top" for i in range(N)}
+        stdcells.pnr(self.schematic, ., port_edges=edges)
 
 
 cell R2r:
@@ -83,6 +89,76 @@ cell R2r:
                     .$l = R_L; .$w = R_W
                     .n -- node[i]; .p -- node[i + 1]; .sub -- vss
 
+    viewgen layout(self) -> Layout:
+        # Columns COL apart: termination (rt0 below rt1), then one 2R stack per bit
+        # (ra[i] below rb[i]). The series resistors rs[i] lie horizontally above,
+        # between the tops of the stacks of bits i and i + 1. Wiring on Metal1.
+        .ref_layers = SG13G2().layers
+        layers = .ref_layers
+        sr = SRouter(SG13G2().default_routing_spec)
+        COL = 6000
+        STACK = 5780    # y of the upper resistor of a stack
+        SERIES = 1400   # series row above the stack tops
+        RS_OFS = 720    # series resistor terminals beside the column centres
+
+        path ra, rb, rs, b
+        Rhigh(l=R_L, w=R_W) rt0:
+            ! .pos == (0, 0)
+        Rhigh(l=R_L, w=R_W) rt1:
+            ! .pos == (0, STACK)
+        lower = [rt0]
+        upper = [rt1]
+        for i in range(N):
+            Rhigh(l=R_L, w=R_W) ra[i]:
+                ! .pos == ((i + 1) * COL, 0)
+            Rhigh(l=R_L, w=R_W) rb[i]:
+                ! .pos == ((i + 1) * COL, STACK)
+            lower.append(ra[i])
+            upper.append(rb[i])
+        for lo, up in zip(lower, upper):
+            sr.move(layers.Metal1, lo.term_p.center)
+            sr.wire_y(up.term_n.cy)
+
+        # Ladder nodes: tops of the stacks, joined by the series resistors.
+        y_series = rb[0].term_p.cy + SERIES
+        for i in range(N - 1):
+            Rhigh(l=R_L, w=R_W) rs[i]:
+                .orient = R270
+                ! .term_n.cx == rb[i].term_p.cx + RS_OFS
+                ! .term_n.cy == y_series
+        for i in range(N):
+            sr.move(layers.Metal1, rb[i].term_p.center)
+            sr.wire_y(y_series)
+            sr.wire_x(rb[i].term_p.cx + (RS_OFS if i < N - 1 else 0))
+            if i > 0:
+                sr.move(layers.Metal1, (rb[i].term_p.cx, y_series))
+                sr.wire_x(rb[i].term_p.cx - RS_OFS)
+        # Termination into node 0.
+        sr.move(layers.Metal1, rt1.term_p.center)
+        sr.wire_y(y_series)
+        sr.wire_x(rb[0].term_p.cx)
+
+        # Substrate tap next to the termination, on vss.
+        Ptap(l=0.7u, w=0.7u) tap:
+            ! .m1.cy == rt0.term_n.cy
+            ! .m1.ux == rt0.term_n.lx - 1500
+        sr.move(layers.Metal1, tap.m1.center)
+        sr.wire_x(rt0.term_n.cx)
+
+        LayoutRect vss:
+            .layer = layers.Metal1
+            ! .rect == tap.m1.rect
+            .create_pin(self.symbol.vss)
+        LayoutRect vout:
+            .layer = layers.Metal1
+            ! .rect == rb[N - 1].term_p.rect
+            .create_pin(self.symbol.vout)
+        for i in range(N):
+            LayoutRect b[i]:
+                .layer = layers.Metal1
+                ! .rect == ra[i].term_n.rect
+                .create_pin(self.symbol.b[i])
+
 
 cell Dac:
     """3-bit R-2R DAC: vout = vdd * code / 8 (unbuffered)."""
@@ -114,3 +190,57 @@ cell Dac:
             .vout -- vout; .vss -- vss
             for i in range(N):
                 .b[i] -- b[i]
+
+    viewgen layout(self) -> Layout:
+        # Drivers at the bottom, ladder above (positions put the lower left corner of the
+        # macro at the origin). Each driver output rises on Metal4 to its own channel,
+        # runs on Metal3 to its ladder column and drops on Metal2.
+        .ref_layers = SG13G2().layers
+        layers = .ref_layers
+        sr = SRouter(SG13G2().default_routing_spec)
+        port = stdcells.port
+        CHANNEL = 1000  # channel pitch above the drivers
+
+        DacDrivers drv:
+            ! .pos == (2110, 360)
+        drv_vss = port(drv, "vss")
+        b0 = port(drv, "b", 0)
+        R2r ladder:
+            ! .pos == (2110, b0.uy + (N + 2) * CHANNEL)
+
+        for i in range(N):
+            src = port(drv, "b", i)
+            dst = ladder.b[i]
+            sr.move(layers.Metal4, src.center)
+            sr.wire_y(src.uy + (i + 1) * CHANNEL)
+            sr.layer(layers.Metal3)
+            sr.wire_x(dst.cx)
+            sr.layer(layers.Metal2)
+            sr.wire_y(dst.cy)
+            sr.layer(layers.Metal1)
+
+        # Ladder ground (substrate tap) down to the drivers' vss rail, left of the drivers.
+        sr.move(layers.Metal1, ladder.vss.center)
+        sr.layer(layers.Metal2)
+        sr.wire_y(drv_vss.cy)
+        sr.layer(layers.Metal1)
+        sr.wire_x(drv_vss.lx + 300)
+
+        LayoutRect vdd:
+            .layer = layers.Metal1
+            ! .rect == port(drv, "vdd").rect
+            .create_pin(self.symbol.vdd)
+        LayoutRect vss:
+            .layer = layers.Metal1
+            ! .rect == drv_vss.rect
+            .create_pin(self.symbol.vss)
+        LayoutRect vout:
+            .layer = layers.Metal1
+            ! .rect == ladder.vout.rect
+            .create_pin(self.symbol.vout)
+        path d
+        for i in range(N):
+            LayoutRect d[i]:
+                .layer = layers.Metal4
+                ! .rect == port(drv, "d", i).rect
+                .create_pin(self.symbol.d[i])
